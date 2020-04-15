@@ -1,7 +1,9 @@
 package org.mernst.concurrent;
 
 import com.google.common.util.concurrent.ListenableFuture;
+import org.mernst.functional.ThrowingConsumer;
 import org.mernst.functional.ThrowingFunction;
+import org.mernst.functional.ThrowingRunnable;
 import org.mernst.functional.ThrowingSupplier;
 
 import static org.mernst.concurrent.AsyncSupplier.State.push;
@@ -81,11 +83,4 @@ public final class Plan {
     return exceptThen(Throwable.class, handler);
   }
 
-  public interface ThrowingRunnable {
-    void run() throws Exception;
-  }
-
-  public interface ThrowingConsumer<T> {
-    void accept(T value) throws Exception;
-  }
 }

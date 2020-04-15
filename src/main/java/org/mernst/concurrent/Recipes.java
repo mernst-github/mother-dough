@@ -3,10 +3,7 @@ package org.mernst.concurrent;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Streams;
 import org.mernst.collect.Streamable;
-import org.mernst.functional.ThrowingBiFunction;
-import org.mernst.functional.ThrowingFunction;
-import org.mernst.functional.ThrowingPredicate;
-import org.mernst.functional.ThrowingSupplier;
+import org.mernst.functional.*;
 
 import java.util.*;
 import java.util.function.BiConsumer;
@@ -50,7 +47,7 @@ public interface Recipes<T> extends Streamable<Recipe<T>> {
     };
   }
 
-  default Plan consumeInCompletionOrder(Plan.ThrowingConsumer<T> consumer) {
+  default Plan consumeInCompletionOrder(ThrowingConsumer<T> consumer) {
     return Plan.from(
         this.<Void, Void>accumulate(
             () -> null,

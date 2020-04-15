@@ -8,9 +8,7 @@ import com.google.common.util.concurrent.SettableFuture;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import org.mernst.collect.Streamable;
-import org.mernst.functional.ThrowingFunction;
-import org.mernst.functional.ThrowingPredicate;
-import org.mernst.functional.ThrowingSupplier;
+import org.mernst.functional.*;
 
 import java.time.Duration;
 import java.util.Arrays;
@@ -165,7 +163,7 @@ public final class Recipe<T> {
   }
 
   public Recipe<T> afterwards(
-      Plan.ThrowingConsumer<T> onSuccess, Plan.ThrowingConsumer<Throwable> onError) {
+          ThrowingConsumer<T> onSuccess, ThrowingConsumer<Throwable> onError) {
     return wrap(
         (onValue, onFailure) ->
             pull(
@@ -188,7 +186,7 @@ public final class Recipe<T> {
                 }));
   }
 
-  public Recipe<T> afterwards(Plan.ThrowingRunnable body) {
+  public Recipe<T> afterwards(ThrowingRunnable body) {
     return afterwards(value -> body.run(), failure -> body.run());
   }
 
