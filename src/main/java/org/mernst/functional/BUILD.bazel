@@ -1,0 +1,5 @@
+java_library(
+    name = "functional",
+    srcs = glob(["*.java"]),
+    visibility = ["//visibility:public"],
+)

@@ -1,0 +1,11 @@
+java_library(
+    name = "context",
+    srcs = glob(["*.java"]),
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_google_guava_guava",
+        "@com_google_inject_guice",
+        "@grpc_grpc_java//context",
+        "@javax_inject_javax_inject",
+    ],
+)

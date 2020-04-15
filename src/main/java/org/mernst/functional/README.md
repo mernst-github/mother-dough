@@ -1,0 +1,2 @@
+Handy functional interfaces.
+

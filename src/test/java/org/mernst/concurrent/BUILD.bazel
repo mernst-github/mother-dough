@@ -1,0 +1,20 @@
+java_library(
+    name = "support",
+    srcs = ["HereExecutor.java"],
+    deps = [
+        "//src/main/java/org/mernst/concurrent",
+        "@com_google_guava_guava",
+    ],
+)
+
+java_test(
+    name = "RecipeTest",
+    srcs = ["RecipeTest.java"],
+    deps = [
+        ":support",
+        "//src/main/java/org/mernst/concurrent",
+        "@com_google_guava_guava",
+        "@grpc_grpc_java//api",
+        "@junit_junit",
+    ],
+)

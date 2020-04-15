@@ -1,0 +1,68 @@
+RESULT = [
+    "HttpResult.java",
+]
+
+ACTION = [
+    "Action.java",
+    "ActionsModule.java",
+    "Param.java",
+    "Path.java",
+    "Headers.java",
+    "RequestMethod.java",
+]
+
+java_library(
+    name = "result",
+    srcs = RESULT,
+    visibility = ["//visibility:public"],
+    deps = [
+        "//src/main/java/org/mernst/collect",
+        "//src/main/java/org/mernst/concurrent",
+        "@com_fasterxml_jackson_core_jackson_core",
+        "@com_fasterxml_jackson_core_jackson_databind",
+        "@com_google_guava_guava",
+        "@com_google_inject_guice",
+        "@com_squareup_okhttp3_okhttp",
+    ],
+)
+
+java_library(
+    name = "action",
+    srcs = ACTION,
+    plugins = [
+        "//src/main/java/org/mernst/auto:annotation",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":result",
+        "//src/main/java/org/mernst/collect",
+        "//src/main/java/org/mernst/concurrent",
+        "@com_google_auto_value_auto_value_annotations",
+        "@com_google_guava_guava",
+        "@com_google_inject_guice",
+        "@com_squareup_okhttp3_okhttp",
+        "@grpc_grpc_java//api",
+        "@javax_inject_javax_inject",
+    ],
+)
+
+java_library(
+    name = "server",
+    srcs = glob(
+        ["*.java"],
+        exclude = ACTION + RESULT,
+    ),
+    visibility = ["//visibility:public"],
+    deps = [
+        ":action",
+        ":result",
+        "//src/main/java/org/mernst/concurrent",
+        "//src/main/java/org/mernst/context",
+        "@com_google_guava_guava",
+        "@com_google_http_client_google_http_client",
+        "@com_google_inject_guice",
+        "@com_squareup_okhttp3_okhttp",
+        "@grpc_grpc_java//api",
+        "@grpc_grpc_java//context",
+    ],
+)

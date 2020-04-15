@@ -1,0 +1,12 @@
+java_test(
+    name = "MetricTest",
+    srcs = ["MetricTest.java"],
+    deps = [
+        "//src/main/java/org/mernst/metrics",
+        "@com_google_api_grpc_proto_google_cloud_monitoring_v3",
+        "@com_google_api_grpc_proto_google_common_protos",
+        "@com_google_guava_guava",
+        "@grpc_grpc_java//api",
+        "@junit_junit",
+    ],
+)

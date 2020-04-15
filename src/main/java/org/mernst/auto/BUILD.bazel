@@ -1,0 +1,17 @@
+java_plugin(
+    name = "value",
+    processor_class = "com.google.auto.value.processor.AutoValueProcessor",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_google_auto_value_auto_value//jar",
+    ],
+)
+
+java_plugin(
+    name = "annotation",
+    processor_class = "com.google.auto.value.processor.AutoAnnotationProcessor",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_google_auto_value_auto_value//jar",
+    ],
+)

@@ -1,0 +1,18 @@
+java_library(
+    name = "client",
+    srcs = glob(["*.java"]),
+    visibility = ["//visibility:public"],
+    deps = [
+        "//src/main/java/org/mernst/concurrent",
+        "//src/main/java/org/mernst/functional",
+        "//src/main/java/org/mernst/metrics",
+        "@com_google_api_client_google_api_client",
+        "@com_google_guava_guava",
+        "@com_google_http_client_google_http_client",
+        "@com_google_inject_guice",
+        "@com_squareup_okhttp3_okhttp",
+        "@grpc_grpc_java//api",
+        "@grpc_grpc_java//context",
+        "@javax_inject_javax_inject",
+    ],
+)
