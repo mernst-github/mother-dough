@@ -30,10 +30,10 @@ public abstract class GrpcClientModule extends AbstractModule {
   @Override
   protected final void configure() {
     install(new AutoValue_ChannelModule(target));
-    configureStubs();
+    bindStubs();
   }
 
-  protected abstract void configureStubs();
+  protected abstract void bindStubs();
 
   protected final <T extends AbstractFutureStub<T>> void bindStub(
       Class<T> stubClass, Function<ManagedChannel, T> stubCreator) {

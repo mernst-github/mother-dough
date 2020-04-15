@@ -1,49 +1,16 @@
 package org.mernst.json;
 
-import com.fasterxml.jackson.core.JsonFactory;
-import com.fasterxml.jackson.core.JsonGenerator;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.ObjectReader;
-import com.fasterxml.jackson.databind.ObjectWriter;
 import com.google.common.collect.Maps;
 import org.mernst.collect.Streamable;
 import org.mernst.concurrent.Plan;
-import org.mernst.concurrent.Recipe;
 import org.mernst.http.server.HttpResult;
 
-import java.io.InputStream;
-import java.io.Reader;
 import java.io.Writer;
 import java.util.Iterator;
 import java.util.Map;
-import java.util.function.Function;
 import java.util.stream.Stream;
 
 public interface Json extends HttpResult.ChunkedText {
-  static <T> Function<T, Json> serializerFor(Class<T> type) {
-    ObjectWriter serializer = Jackson.MAPPER.writerFor(type);
-    return instance ->
-        w ->
-            Plan.none()
-                .then(
-                    () -> {
-                      serializer.writeValue(w, instance);
-                    });
-  }
-
-  static <T> Function<InputStream, Recipe<T>> fromBytes(Class<T> type) {
-    ObjectReader objectReader = Jackson.MAPPER.readerFor(type);
-    return r ->
-        Recipe.to(null)
-            .map(ignore -> objectReader.readValue(Jackson.FACTORY.createParser(r), type));
-  }
-
-  static <T> Function<Reader, Recipe<T>> fromChars(Class<T> type) {
-    ObjectReader objectReader = Jackson.MAPPER.readerFor(type);
-    return r ->
-        Recipe.to(null)
-            .map(ignore -> objectReader.readValue(Jackson.FACTORY.createParser(r), type));
-  }
 
   static Json number(long n) {
     return w -> write(String.valueOf(n), w);
@@ -173,13 +140,4 @@ public interface Json extends HttpResult.ChunkedText {
             .then(() -> json.next().writingTo(w))
             .then(() -> writePrefixed(delimiter, json, w));
   }
-}
-
-class Jackson {
-  static final ObjectMapper MAPPER =
-      new ObjectMapper()
-          .disable(JsonGenerator.Feature.AUTO_CLOSE_TARGET)
-          .disable(JsonGenerator.Feature.FLUSH_PASSED_TO_STREAM);
-
-  static final JsonFactory FACTORY = MAPPER.getFactory();
 }

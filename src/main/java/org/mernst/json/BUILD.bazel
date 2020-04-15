@@ -5,6 +5,7 @@ java_library(
     deps = [
         "//src/main/java/org/mernst/collect",
         "//src/main/java/org/mernst/concurrent",
+        "//src/main/java/org/mernst/functional",
         "//src/main/java/org/mernst/http/server:result",
         "@com_fasterxml_jackson_core_jackson_core",
         "@com_fasterxml_jackson_core_jackson_databind",

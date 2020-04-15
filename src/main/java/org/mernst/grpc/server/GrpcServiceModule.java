@@ -6,7 +6,15 @@ import com.google.inject.binder.LinkedBindingBuilder;
 import com.google.inject.multibindings.Multibinder;
 import io.grpc.BindableService;
 
-public class GrpcServiceModule extends AbstractModule {
+public abstract class GrpcServiceModule extends AbstractModule {
+
+  @Override
+  protected final void configure() {
+    bindServices();
+  }
+
+  protected abstract void bindServices();
+
   protected final LinkedBindingBuilder<BindableService> bindService() {
     return serviceBinder(binder()).addBinding();
   }
