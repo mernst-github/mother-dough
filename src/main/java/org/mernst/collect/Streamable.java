@@ -26,7 +26,7 @@ public interface Streamable<T> {
   /**
    * Collects this streamable into a list for repeated streaming or early error detection.
    */
-  default Streamable<T> materialize() {
+  default Streamable<T> materialized() {
     return stream().collect(toImmutableList())::stream;
   }
 }

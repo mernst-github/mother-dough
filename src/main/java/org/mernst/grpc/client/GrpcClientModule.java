@@ -3,6 +3,7 @@ package org.mernst.grpc.client;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.auth.oauth2.IdTokenCredentials;
 import com.google.auth.oauth2.IdTokenProvider;
+import com.google.auto.value.AutoValue;
 import com.google.inject.AbstractModule;
 import com.google.inject.Key;
 import com.google.inject.Provider;
@@ -19,18 +20,20 @@ import java.lang.annotation.Annotation;
 import java.util.concurrent.Executor;
 import java.util.function.Function;
 
-public class GrpcClientModule extends AbstractModule {
+public abstract class GrpcClientModule extends AbstractModule {
   private final String target;
 
   public GrpcClientModule(String target) {
     this.target = target;
   }
 
-  protected final void bindChannel() {
-    Provider<Executor> executor = binder().getProvider(Executor.class);
-    bind(Key.get(ManagedChannel.class, Names.named(target)))
-        .toProvider(() -> channelFor(target, executor.get()));
+  @Override
+  protected final void configure() {
+    install(new AutoValue_ChannelModule(target));
+    configureStubs();
   }
+
+  protected abstract void configureStubs();
 
   protected final <T extends AbstractFutureStub<T>> void bindStub(
       Class<T> stubClass, Function<ManagedChannel, T> stubCreator) {
@@ -57,17 +60,6 @@ public class GrpcClientModule extends AbstractModule {
             });
   }
 
-  static ManagedChannel channelFor(String target, Executor executor) {
-    ManagedChannelBuilder<?> channelBuilder =
-        ManagedChannelBuilder.forTarget(target).executor(executor);
-    if (!target.startsWith("localhost")) {
-      return channelBuilder.build();
-    }
-
-    // local: plaintext, no creds
-    return channelBuilder.usePlaintext().build();
-  }
-
   static <T extends AbstractFutureStub<T>> T configure(T stub, String target) {
     if (target.startsWith("localhost")) {
       return stub;
@@ -85,5 +77,26 @@ public class GrpcClientModule extends AbstractModule {
       throw new StatusRuntimeException(Status.INTERNAL.withCause(e));
     }
     return stub.withCallCredentials(MoreCallCredentials.from(idToken));
+  }
+}
+
+@AutoValue
+abstract class ChannelModule extends AbstractModule {
+  abstract String target();
+
+  @Override
+  protected void configure() {
+    Provider<Executor> executor = binder().getProvider(Executor.class);
+    String target = target();
+
+    bind(Key.get(ManagedChannel.class, Names.named(target)))
+        .toProvider(
+            () -> {
+              ManagedChannelBuilder<?> channelBuilder =
+                  ManagedChannelBuilder.forTarget(target).executor(executor.get());
+              return target.startsWith("localhost")
+                  ? channelBuilder.usePlaintext().build()
+                  : channelBuilder.build();
+            });
   }
 }

@@ -8,6 +8,7 @@ import com.google.common.collect.Streams;
 import com.google.common.util.concurrent.AbstractScheduledService;
 import com.google.common.util.concurrent.Service;
 import com.google.inject.AbstractModule;
+import com.google.inject.Provides;
 import com.google.inject.multibindings.ProvidesIntoSet;
 import com.google.monitoring.v3.CreateTimeSeriesRequest;
 import io.grpc.Status;
@@ -36,38 +37,9 @@ public class ExporterModule extends AbstractModule {
   }
 
   @ProvidesIntoSet
-  Service exporter(@MetricsModule.Annotation Set<Metric> metrics) throws Exception {
+  Service exporter(MonitoredResource resource, @MetricsModule.Annotation Set<Metric> metrics)
+      throws Exception {
     MetricServiceClient metricServiceClient = MetricServiceClient.create();
-    String projectId =
-        getMetadata("/computeMetadata/v1/project/project-id").orElse("invertible-vine-268215");
-    MonitoredResource resource =
-        getenv("K_SERVICE")
-            .map(
-                unused ->
-                    MonitoredResource.newBuilder()
-                        .setType("generic_task")
-                        .putAllLabels(
-                            ImmutableMap.of(
-                                "project_id",
-                                projectId,
-                                "location",
-                                getMetadata("/computeMetadata/v1/instance/zone")
-                                    .map(zone -> zone.split("/")[3])
-                                    .orElse("local"),
-                                "namespace",
-                                getenv("K_SERVICE").orElse("frontend"),
-                                "job",
-                                getenv("K_REVISION").orElse("dev"),
-                                "task_id",
-                                instanceId))
-                        .build())
-            .orElseGet(
-                () ->
-                    MonitoredResource.newBuilder()
-                        .setType("global")
-                        .putAllLabels(ImmutableMap.of("project_id", projectId))
-                        .build());
-
     return new AbstractScheduledService() {
       @Override
       protected Scheduler scheduler() {
@@ -87,7 +59,7 @@ public class ExporterModule extends AbstractModule {
             .map(
                 tsl ->
                     CreateTimeSeriesRequest.newBuilder()
-                        .setName("projects/" + projectId)
+                        .setName("projects/" + resource.getLabelsOrThrow("project_id"))
                         .addAllTimeSeries(tsl)
                         .build())
             .forEach(
@@ -104,6 +76,38 @@ public class ExporterModule extends AbstractModule {
                 });
       }
     };
+  }
+
+  @Provides
+  MonitoredResource monitoredResource() {
+    String projectId =
+        getMetadata("/computeMetadata/v1/project/project-id").orElse("invertible-vine-268215");
+    return getenv("K_SERVICE")
+        .map(
+            unused ->
+                MonitoredResource.newBuilder()
+                    .setType("generic_task")
+                    .putAllLabels(
+                        ImmutableMap.of(
+                            "project_id",
+                            projectId,
+                            "location",
+                            getMetadata("/computeMetadata/v1/instance/zone")
+                                .map(zone -> zone.split("/")[3])
+                                .orElse("local"),
+                            "namespace",
+                            getenv("K_SERVICE").orElse("frontend"),
+                            "job",
+                            getenv("K_REVISION").orElse("dev"),
+                            "task_id",
+                            instanceId))
+                    .build())
+        .orElseGet(
+            () ->
+                MonitoredResource.newBuilder()
+                    .setType("global")
+                    .putAllLabels(ImmutableMap.of("project_id", projectId))
+                    .build());
   }
 
   private Optional<String> getenv(String name) {
