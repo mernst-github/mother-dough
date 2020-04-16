@@ -31,8 +31,8 @@ public class HttpServiceModule extends AbstractModule {
   }
 
   @ProvidesIntoSet
-  Service service(Executor executor, Map<String, Provider<Action>> actions) {
-    return new HttpService(server, executor, actions);
+  Service service(Executor executor, Map<String, Provider<Action>> actions, Provider<HttpResponder> responder) {
+    return new HttpService(server, executor, actions, responder);
   }
 
   @Provides

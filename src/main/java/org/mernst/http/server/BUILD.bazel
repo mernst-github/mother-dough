@@ -5,9 +5,10 @@ RESULT = [
 ACTION = [
     "Action.java",
     "ActionsModule.java",
+    "Headers.java",
+    "HttpResponder.java",
     "Param.java",
     "Path.java",
-    "Headers.java",
     "RequestMethod.java",
 ]
 
@@ -19,13 +20,8 @@ java_library(
         "//src/main/java/org/mernst/auto:value",
         "//src/main/java/org/mernst/collect",
         "//src/main/java/org/mernst/concurrent",
-        "@com_fasterxml_jackson_core_jackson_core",
-        "@com_fasterxml_jackson_core_jackson_databind",
         "@com_google_guava_guava",
-        "@com_google_http_client_google_http_client",
         "@com_google_inject_guice",
-        "@com_squareup_okhttp3_okhttp",
-        "@io_grpc_grpc_api",
     ],
 )
 
@@ -39,6 +35,7 @@ java_library(
         "//src/main/java/org/mernst/collect",
         "//src/main/java/org/mernst/concurrent",
         "@com_google_guava_guava",
+        "@com_google_http_client_google_http_client",
         "@com_google_inject_guice",
         "@com_squareup_okhttp3_okhttp",
         "@grpc_grpc_java//api",

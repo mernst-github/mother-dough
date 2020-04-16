@@ -3,8 +3,6 @@ package org.mernst.http.server;
 import com.google.auto.value.AutoAnnotation;
 import com.google.common.base.Converter;
 import com.google.common.base.Enums;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Streams;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
@@ -24,7 +22,6 @@ import com.sun.net.httpserver.HttpExchange;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import okhttp3.HttpUrl;
-import org.mernst.collect.Streamable;
 import org.mernst.concurrent.Plan;
 import org.mernst.concurrent.Recipe;
 
@@ -43,13 +40,13 @@ public abstract class ActionsModule extends BaseModule {
   }
 
   protected void redirectPermanently(String path, String destination) {
-    Provider<HttpUrl> base = getProvider(HttpUrl.class);
-    bind(path, Recipe.from(() -> HttpResult.permanentRedirect(base.get().resolve(destination))));
+    bindAction(path)
+        .toInstance(responder -> Recipe.from(() -> responder.permanentRedirect().to(destination)));
   }
 
   protected void redirectTemporarily(String path, String destination) {
-    Provider<HttpUrl> base = getProvider(HttpUrl.class);
-    bind(path, Recipe.from(() -> HttpResult.temporaryRedirect(base.get().resolve(destination))));
+    bindAction(path)
+        .toInstance(responder -> Recipe.from(() -> responder.temporaryRedirect().to(destination)));
   }
 
   protected void defaultDocument(String dir, String documentPath) {
@@ -68,18 +65,7 @@ public abstract class ActionsModule extends BaseModule {
       String relativePath,
       String contentType) {
     bindAction(basePath + relativePath)
-        .toInstance(
-            new ResourceAction(
-                baseClass,
-                resourceDirectory,
-                relativePath,
-                contentType,
-                getProvider(
-                    Key.get(new TypeLiteral<Map<String, List<String>>>() {}, Headers.class))));
-  }
-
-  private void bind(String path, Recipe<HttpResult> result) {
-    bindAction(path).toInstance(() -> result);
+        .toInstance(new ResourceAction(baseClass, resourceDirectory, relativePath, contentType));
   }
 
   @Override
@@ -96,15 +82,9 @@ public abstract class ActionsModule extends BaseModule {
     private final String relativePath;
     private final String tag;
     private final String contentType;
-    private final Provider<Map<String, List<String>>> requestHeaders;
 
     ResourceAction(
-        Class<?> baseClass,
-        String resourceDirectory,
-        String relativePath,
-        String contentType,
-        @Headers Provider<Map<String, List<String>>> requestHeaders) {
-      this.requestHeaders = requestHeaders;
+        Class<?> baseClass, String resourceDirectory, String relativePath, String contentType) {
       this.contentType = contentType;
       this.baseClass = baseClass;
       this.resourceDirectory = resourceDirectory;
@@ -133,23 +113,20 @@ public abstract class ActionsModule extends BaseModule {
     }
 
     @Override
-    public Recipe<HttpResult> execute() {
+    public Recipe<HttpResult> execute(HttpResponder responder) {
       return Recipe.to(
-          requestHeaders.get().getOrDefault("If-None-Match", ImmutableList.of()).contains(tag)
-              ? HttpResult.notModified()
-              : HttpResult.of(
-                  200,
-                  Streamable.of(Maps.immutableEntry("ETag", tag)),
-                  Optional.of(
-                      HttpResult.Body.of(
-                          contentType,
-                          os ->
-                              Plan.of(
-                                  () ->
-                                      ByteStreams.copy(
-                                          baseClass.getResourceAsStream(
-                                              resourceDirectory.substring(1) + relativePath),
-                                          os))))));
+          responder.of(
+              200,
+              HttpResult.Body.of(
+                  contentType,
+                  tag,
+                  os ->
+                      Plan.of(
+                          () ->
+                              ByteStreams.copy(
+                                  baseClass.getResourceAsStream(
+                                      resourceDirectory.substring(1) + relativePath),
+                                  os)))));
     }
   }
 }

@@ -19,11 +19,17 @@ class HttpService extends AbstractIdleService {
   private final HttpServer server;
   private final Executor executor;
   private final ImmutableMap<String, Provider<Action>> actions;
+  private final Provider<HttpResponder> responder;
 
-  HttpService(HttpServer server, Executor executorService, Map<String, Provider<Action>> actions) {
+  HttpService(
+      HttpServer server,
+      Executor executorService,
+      Map<String, Provider<Action>> actions,
+      Provider<HttpResponder> responder) {
     this.server = server;
     this.executor = executorService;
     this.actions = ImmutableMap.copyOf(actions);
+    this.responder = responder;
   }
 
   @Override
@@ -48,8 +54,8 @@ class HttpService extends AbstractIdleService {
   private void execute(Provider<Action> action) {
     Futures.addCallback(
         Recipe.from(action::get)
-            .flatMap(Action::execute)
-            .mapFailure(HttpResult::of)
+            .flatMap(a -> a.execute(responder.get()))
+            .mapFailure(responder.get()::of)
             .consume(this::render)
             .start(executor),
         new FutureCallback<Void>() {
@@ -69,11 +75,6 @@ class HttpService extends AbstractIdleService {
     HttpExchange exchange = HttpServiceModule.HTTP_EXCHANGE_KEY.get();
     Headers responseHeaders = exchange.getResponseHeaders();
     result.headers().stream().forEach(e -> responseHeaders.add(e.getKey(), e.getValue()));
-    result
-        .body()
-        .map(HttpResult.Body::contentType)
-        .ifPresent(t -> responseHeaders.set("content-type", t));
-
     return Plan.of(
             () -> exchange.sendResponseHeaders(result.status(), result.body().isPresent() ? 0 : -1))
         .then(
