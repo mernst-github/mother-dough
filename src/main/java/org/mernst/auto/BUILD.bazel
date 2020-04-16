@@ -1,16 +1,28 @@
-java_plugin(
+java_library(
     name = "value",
-    processor_class = "com.google.auto.value.processor.AutoValueProcessor",
+    exported_plugins = [":value_processor"],
     visibility = ["//visibility:public"],
+    exports = ["@com_google_auto_value_auto_value_annotations"],
+)
+
+java_library(
+    name = "annotation",
+    exported_plugins = [":annotation_processor"],
+    visibility = ["//visibility:public"],
+    exports = ["@com_google_auto_value_auto_value_annotations"],
+)
+
+java_plugin(
+    name = "value_processor",
+    processor_class = "com.google.auto.value.processor.AutoValueProcessor",
     deps = [
         "@com_google_auto_value_auto_value//jar",
     ],
 )
 
 java_plugin(
-    name = "annotation",
+    name = "annotation_processor",
     processor_class = "com.google.auto.value.processor.AutoAnnotationProcessor",
-    visibility = ["//visibility:public"],
     deps = [
         "@com_google_auto_value_auto_value//jar",
     ],

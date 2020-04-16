@@ -1,14 +1,11 @@
 java_library(
     name = "concurrent",
     srcs = glob(["*.java"]),
-    plugins = [
-        "//src/main/java/org/mernst/auto:value",
-    ],
     visibility = ["//visibility:public"],
     deps = [
+        "//src/main/java/org/mernst/auto:value",
         "//src/main/java/org/mernst/collect",
         "//src/main/java/org/mernst/functional",
-        "@com_google_auto_value_auto_value_annotations",
         "@com_google_guava_guava",
         "@com_google_inject_guice",
         "@grpc_grpc_java//api",

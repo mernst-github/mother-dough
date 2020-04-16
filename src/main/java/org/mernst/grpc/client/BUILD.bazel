@@ -1,11 +1,10 @@
 java_library(
     name = "client",
     srcs = glob(["*.java"]),
-    plugins = ["//src/main/java/org/mernst/auto:value"],
     visibility = ["//visibility:public"],
     deps = [
+        "//src/main/java/org/mernst/auto:value",
         "@com_google_auth_google_auth_library_oauth2_http",
-        "@com_google_auto_value_auto_value_annotations",
         "@com_google_inject_guice",
         "@grpc_grpc_java//api",
         "@io_grpc_grpc_auth",

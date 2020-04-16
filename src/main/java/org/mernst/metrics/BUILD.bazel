@@ -1,12 +1,11 @@
 java_library(
     name = "metrics",
     srcs = glob(["*.java"]),
-    plugins = ["//src/main/java/org/mernst/auto:value"],
     visibility = ["//visibility:public"],
     deps = [
+        "//src/main/java/org/mernst/auto:value",
         "@com_google_api_grpc_proto_google_cloud_monitoring_v3",
         "@com_google_api_grpc_proto_google_common_protos",
-        "@com_google_auto_value_auto_value_annotations",
         "@com_google_cloud_google_cloud_monitoring",
         "@com_google_guava_guava",
         "@com_google_inject_guice",
