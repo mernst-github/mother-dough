@@ -10,7 +10,7 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.stream.Stream;
 
-public interface Json extends HttpResult.ChunkedText {
+public interface Json extends HttpResult.Text {
 
   static Json number(long n) {
     return w -> write(String.valueOf(n), w);
@@ -79,9 +79,9 @@ public interface Json extends HttpResult.ChunkedText {
                                 e ->
                                     w2 ->
                                         string(e.getKey())
-                                            .writingTo(w2)
+                                            .writeTo(w2)
                                             .then(() -> write(": ", w2))
-                                            .then(() -> e.getValue().writingTo(w2)))
+                                            .then(() -> e.getValue().writeTo(w2)))
                             .iterator(),
                         ",\n",
                         w))
@@ -130,14 +130,14 @@ public interface Json extends HttpResult.ChunkedText {
   static Plan writeDelimited(Iterator<Json> json, String delimiter, Writer w) {
     return !json.hasNext()
         ? Plan.none()
-        : json.next().writingTo(w).then(() -> writePrefixed(delimiter, json, w));
+        : json.next().writeTo(w).then(() -> writePrefixed(delimiter, json, w));
   }
 
   static Plan writePrefixed(String delimiter, Iterator<Json> json, Writer w) {
     return !json.hasNext()
         ? Plan.none()
         : write(delimiter, w)
-            .then(() -> json.next().writingTo(w))
+            .then(() -> json.next().writeTo(w))
             .then(() -> writePrefixed(delimiter, json, w));
   }
 }

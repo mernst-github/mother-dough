@@ -1,16 +1,17 @@
 package org.mernst.concurrent;
 
 import com.google.common.util.concurrent.ListenableFuture;
+import org.mernst.collect.Streamable;
 import org.mernst.functional.ThrowingConsumer;
 import org.mernst.functional.ThrowingFunction;
 import org.mernst.functional.ThrowingRunnable;
 import org.mernst.functional.ThrowingSupplier;
 
+import java.util.Iterator;
+
 import static org.mernst.concurrent.AsyncSupplier.State.push;
 
-/**
- * A better api for a Recipe&lt;Void&gt;.
- */
+/** A better api for a Recipe&lt;Void&gt;. */
 public final class Plan {
   private static final Plan NONE = new Plan((onValue, onFailure) -> push(onValue, null));
 
@@ -37,6 +38,22 @@ public final class Plan {
         Recipe.from(
             () -> {
               r.run();
+              return null;
+            }));
+  }
+
+  public static Plan of(ThrowingRunnable... r) {
+    return of(Streamable.of(r));
+  }
+
+  public static Plan of(Streamable<? extends ThrowingRunnable> r) {
+    return from(
+        Recipe.from(
+            () -> {
+              for (Iterator<? extends ThrowingRunnable> it = r.stream().iterator();
+                  it.hasNext(); ) {
+                it.next().run();
+              }
               return null;
             }));
   }
@@ -82,5 +99,4 @@ public final class Plan {
   public Plan exceptThen(ThrowingFunction<Throwable, Plan> handler) {
     return exceptThen(Throwable.class, handler);
   }
-
 }

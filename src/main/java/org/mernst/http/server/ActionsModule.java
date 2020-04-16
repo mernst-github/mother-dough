@@ -133,32 +133,23 @@ public abstract class ActionsModule extends BaseModule {
     }
 
     @Override
-    public Recipe<?> execute() {
+    public Recipe<HttpResult> execute() {
       return Recipe.to(
-          Optional.ofNullable(requestHeaders.get().get("If-None-Match"))
-                  .orElse(ImmutableList.of())
-                  .contains(tag)
+          requestHeaders.get().getOrDefault("If-None-Match", ImmutableList.of()).contains(tag)
               ? HttpResult.notModified()
               : HttpResult.of(
                   200,
                   Streamable.of(Maps.immutableEntry("ETag", tag)),
                   Optional.of(
-                      new HttpResult.Body() {
-                        @Override
-                        public String contentType() {
-                          return contentType;
-                        }
-
-                        @Override
-                        public Plan writingTo(OutputStream os) {
-                          return Plan.of(
-                              () ->
-                                  ByteStreams.copy(
-                                      baseClass.getResourceAsStream(
-                                          resourceDirectory.substring(1) + relativePath),
-                                      os));
-                        }
-                      })));
+                      HttpResult.Body.of(
+                          contentType,
+                          os ->
+                              Plan.of(
+                                  () ->
+                                      ByteStreams.copy(
+                                          baseClass.getResourceAsStream(
+                                              resourceDirectory.substring(1) + relativePath),
+                                          os))))));
     }
   }
 }

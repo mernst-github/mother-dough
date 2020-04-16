@@ -5,7 +5,7 @@ import io.grpc.StatusRuntimeException;
 import org.mernst.concurrent.Recipe;
 
 public interface Action {
-  Recipe<?> execute();
+  Recipe<HttpResult> execute();
 
   static void checkArgument(boolean ok, String errorMsg) {
     if (!ok) {

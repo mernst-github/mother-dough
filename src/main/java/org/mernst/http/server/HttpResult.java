@@ -1,199 +1,143 @@
 package org.mernst.http.server;
 
+import com.google.api.client.http.HttpResponseException;
+import com.google.auto.value.AutoValue;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
+import io.grpc.Status;
 import okhttp3.HttpUrl;
 import org.mernst.collect.Streamable;
 import org.mernst.concurrent.Plan;
 import org.mernst.concurrent.Recipe;
 
-import java.io.IOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
+import java.io.PrintWriter;
 import java.io.Writer;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
-import java.util.Iterator;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 
-public interface HttpResult {
+@AutoValue
+public abstract class HttpResult {
 
-  String TEXT_UTF8 = "text/plain;charset=utf-8";
-  String HTML_UTF8 = "text/html;charset=utf-8";
+  public static final String TEXT_UTF8 = "text/plain;charset=utf-8";
+  public static final String HTML_UTF8 = "text/html;charset=utf-8";
+  public static final String JSON = "application/json";
 
-  int status();
+  public abstract int status();
 
-  Streamable<Map.Entry<String, String>> headers();
+  public abstract Streamable<Map.Entry<String, String>> headers();
 
-  Optional<Body> body();
+  public abstract Optional<Body> body();
 
-  static HttpResult of(
+  public static HttpResult of(
       int status, Streamable<Map.Entry<String, String>> headers, Optional<Body> body) {
-    return new HttpResult() {
-      @Override
-      public int status() {
-        return status;
-      }
-
-      @Override
-      public Streamable<Map.Entry<String, String>> headers() {
-        return headers;
-      }
-
-      @Override
-      public Optional<Body> body() {
-        return body;
-      }
-    };
+    return new AutoValue_HttpResult(status, headers, body);
   }
 
-  static HttpResult notModified() {
+  public static HttpResult notModified() {
     return of(304, Streamable.of(), Optional.empty());
   }
 
-  static HttpResult temporaryRedirect(HttpUrl location) {
+  public static HttpResult temporaryRedirect(HttpUrl location) {
     return redirect(307, location);
   }
 
-  static HttpResult permanentRedirect(HttpUrl location) {
+  public static HttpResult permanentRedirect(HttpUrl location) {
     return redirect(308, location);
   }
 
-  static HttpResult redirect(int status, HttpUrl location) {
+  public static HttpResult redirect(int status, HttpUrl location) {
     return of(
         status,
         Streamable.of(Maps.immutableEntry("Location", location.toString())),
         Optional.empty());
   }
 
-  static HttpResult of(int status) {
+  public static HttpResult of(int status) {
     return of(status, Streamable.of(), Optional.empty());
   }
 
-  static HttpResult of(int status, Body body) {
+  public static HttpResult of(Status rpcStatus) {
+    return of(
+        toHttpStatus(rpcStatus), Body.plainUtf8(w -> Plan.of(() -> w.write(rpcStatus.toString()))));
+  }
+
+  public static HttpResult of(Throwable t) {
+    return of(
+        t instanceof HttpResponseException
+            ? ((HttpResponseException) t).getStatusCode()
+            : toHttpStatus(Status.fromThrowable(t)),
+        Body.plainUtf8(w -> Plan.of(() -> t.printStackTrace(new PrintWriter(w)))));
+  }
+
+  private static Integer toHttpStatus(Status rpcStatus) {
+    return HTTP_CODES.getOrDefault(rpcStatus.getCode(), 500);
+  }
+
+  public static HttpResult of(int status, Body body) {
     return of(status, Streamable.of(), Optional.of(body));
   }
 
-  static HttpResult of(Body body) {
+  public static HttpResult of(Body body) {
     return of(200, body);
   }
 
-  static HttpResult plainUtf8(ChunkedText chunks) {
-    return of(TextBody.plainUtf8(chunks));
-  }
+  public interface Text {
+    Plan writeTo(Writer w);
 
-  static HttpResult plainUtf8(Object... values) {
-    return plainUtf8(ChunkedText.of(values));
-  }
-
-  static HttpResult htmlUtf8(ChunkedText chunks) {
-    return of(TextBody.htmlUtf8(chunks));
-  }
-
-  static HttpResult htmlUtf8(Object... values) {
-    return htmlUtf8(ChunkedText.of(values));
-  }
-
-  interface Body {
-    String contentType();
-
-    Plan writingTo(OutputStream os);
-  }
-
-  interface TextBody extends Body {
-    Charset charset();
-
-    default Plan writingTo(OutputStream os) {
-      OutputStreamWriter writer = new OutputStreamWriter(os, charset());
-      return writingTo(writer).then(writer::flush);
-    }
-
-    Plan writingTo(Writer w);
-
-    static TextBody of(String contentType, Charset charset, ChunkedText chunks) {
-      return new TextBody() {
-        @Override
-        public Charset charset() {
-          return charset;
-        }
-
-        @Override
-        public String contentType() {
-          return contentType;
-        }
-
-        @Override
-        public Plan writingTo(Writer w) {
-          return chunks.writingTo(w);
-        }
-      };
-    }
-
-    static TextBody plainUtf8(ChunkedText chunks) {
-      return of(TEXT_UTF8, StandardCharsets.UTF_8, chunks);
-    }
-
-    static TextBody htmlUtf8(ChunkedText chunks) {
-      return of(HTML_UTF8, StandardCharsets.UTF_8, chunks);
-    }
-
-    static TextBody json(ChunkedText chunks) {
-      return of("application/json", StandardCharsets.UTF_8, chunks);
+    default Binary encoded(Charset charset) {
+      return out ->
+          Recipe.from(() -> new OutputStreamWriter(out, charset))
+              .consume(w -> writeTo(w).then(w::flush));
     }
   }
 
-  interface ChunkedText {
-    Plan writingTo(Writer w);
+  public interface Binary {
+    Plan writeTo(OutputStream o);
+  }
 
-    static <T> ChunkedText of(Streamable<T> values) {
-      return w -> writingTo(w, values.stream().iterator());
+  @AutoValue
+  public abstract static class Body {
+    public abstract String contentType();
+
+    public abstract Binary content();
+
+    public static Body of(String contentType, Binary body) {
+      return new AutoValue_HttpResult_Body(contentType, body);
     }
 
-    static <T> ChunkedText of(Object... values) {
-      return of(Streamable.of(values));
+    public static Body of(String contentType, Charset charset, Text body) {
+      return Body.of(contentType, body.encoded(charset));
     }
 
-    static <T> ChunkedText flushing(Streamable<T> values) {
-      return w -> of(values).writingTo(w).then(w::flush);
+    public static Body plainUtf8(Text text) {
+      return of(TEXT_UTF8, StandardCharsets.UTF_8, text);
     }
 
-    static <T> ChunkedText flushing(Object... values) {
-      return flushing(Streamable.of(values));
+    public static Body htmlUtf8(Text text) {
+      return of(HTML_UTF8, StandardCharsets.UTF_8, text);
     }
 
-    static <T> Plan writingTo(Writer w, Iterator<T> it) {
-      if (!it.hasNext()) {
-        return Plan.none();
-      }
-      return writingTo(w, it.next()).then(() -> writingTo(w, it));
-    }
-
-    static Plan writingTo(Writer w, Object o) {
-      if (o instanceof Recipe) {
-        // "deref"
-        return ((Recipe<?>) o).consume(v -> writingTo(w, v));
-      }
-      if (o instanceof ChunkedText) {
-        return ((ChunkedText) o).writingTo(w);
-      }
-      return Plan.of(() -> writeTo(w, o));
-    }
-
-    static void writeTo(Writer w, Object o) throws IOException {
-      if (o instanceof TextChunk) {
-        ((TextChunk) o).writeTo(w);
-      } else {
-        w.write(Objects.toString(o));
-      }
+    public static Body json(Text json) {
+      return of(JSON, StandardCharsets.UTF_8, json);
     }
   }
 
-  interface TextChunk {
-    void writeTo(Writer writer) throws IOException;
-
-    static TextChunk flush() {
-      return Writer::flush;
-    }
-  }
+  public static final ImmutableMap<Status.Code, Integer> HTTP_CODES =
+      ImmutableMap.<Status.Code, Integer>builder()
+          .put(Status.Code.OK, 200)
+          .put(Status.Code.ALREADY_EXISTS, 412)
+          .put(Status.Code.FAILED_PRECONDITION, 412)
+          .put(Status.Code.ABORTED, 412)
+          .put(Status.Code.NOT_FOUND, 404)
+          .put(Status.Code.PERMISSION_DENIED, 403)
+          .put(Status.Code.UNAUTHENTICATED, 401)
+          .put(Status.Code.UNAVAILABLE, 503)
+          .put(Status.Code.DEADLINE_EXCEEDED, 504)
+          .put(Status.Code.INVALID_ARGUMENT, 400)
+          .put(Status.Code.OUT_OF_RANGE, 400)
+          .build();
 }
