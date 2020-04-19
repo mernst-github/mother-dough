@@ -41,12 +41,12 @@ public abstract class ActionsModule extends BaseModule {
 
   protected void redirectPermanently(String path, String destination) {
     bindAction(path)
-        .toInstance(responder -> Recipe.from(() -> responder.permanentRedirect().to(destination)));
+        .toInstance(() -> Recipe.from(() -> HttpResult.permanentRedirectTo(destination)));
   }
 
   protected void redirectTemporarily(String path, String destination) {
     bindAction(path)
-        .toInstance(responder -> Recipe.from(() -> responder.temporaryRedirect().to(destination)));
+        .toInstance(() -> Recipe.from(() -> HttpResult.temporaryRedirectTo(destination)));
   }
 
   protected void defaultDocument(String dir, String documentPath) {
@@ -65,7 +65,13 @@ public abstract class ActionsModule extends BaseModule {
       String relativePath,
       String contentType) {
     bindAction(basePath + relativePath)
-        .toInstance(new ResourceAction(baseClass, resourceDirectory, relativePath, contentType));
+        .toInstance(
+            new ResourceAction(
+                baseClass,
+                resourceDirectory,
+                relativePath,
+                contentType,
+                getProvider(HttpResponder.class)));
   }
 
   @Override
@@ -82,13 +88,19 @@ public abstract class ActionsModule extends BaseModule {
     private final String relativePath;
     private final String tag;
     private final String contentType;
+    private final Provider<HttpResponder> responder;
 
     ResourceAction(
-        Class<?> baseClass, String resourceDirectory, String relativePath, String contentType) {
+        Class<?> baseClass,
+        String resourceDirectory,
+        String relativePath,
+        String contentType,
+        Provider<HttpResponder> responder) {
       this.contentType = contentType;
       this.baseClass = baseClass;
       this.resourceDirectory = resourceDirectory;
       this.relativePath = relativePath;
+      this.responder = responder;
 
       try {
         Hasher hashFunction = Hashing.murmur3_128(0).newHasher();
@@ -113,20 +125,22 @@ public abstract class ActionsModule extends BaseModule {
     }
 
     @Override
-    public Recipe<HttpResult> execute(HttpResponder responder) {
+    public Recipe<HttpResult> execute() {
       return Recipe.to(
-          responder.of(
-              200,
-              HttpResult.Body.of(
-                  contentType,
-                  tag,
-                  os ->
-                      Plan.of(
-                          () ->
-                              ByteStreams.copy(
-                                  baseClass.getResourceAsStream(
-                                      resourceDirectory.substring(1) + relativePath),
-                                  os)))));
+          responder
+              .get()
+              .ifUnmodified(
+                  200,
+                  HttpResult.Body.of(
+                      contentType,
+                      tag,
+                      os ->
+                          Plan.of(
+                              () ->
+                                  ByteStreams.copy(
+                                      baseClass.getResourceAsStream(
+                                          resourceDirectory.substring(1) + relativePath),
+                                      os)))));
     }
   }
 }

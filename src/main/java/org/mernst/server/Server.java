@@ -14,6 +14,9 @@ import java.time.Instant;
 import java.util.Set;
 import java.util.concurrent.TimeoutException;
 
+/**
+ * Runs all instances bound to a {@link Service} set binder.
+ */
 public class Server {
   public static void run(Module... modules) throws TimeoutException {
     run(ImmutableList.copyOf(modules));

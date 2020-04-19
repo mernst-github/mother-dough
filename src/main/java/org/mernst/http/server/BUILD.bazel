@@ -21,7 +21,9 @@ java_library(
         "//src/main/java/org/mernst/collect",
         "//src/main/java/org/mernst/concurrent",
         "@com_google_guava_guava",
+        "@com_google_http_client_google_http_client",
         "@com_google_inject_guice",
+        "@grpc_grpc_java//api",
     ],
 )
 
@@ -35,7 +37,6 @@ java_library(
         "//src/main/java/org/mernst/collect",
         "//src/main/java/org/mernst/concurrent",
         "@com_google_guava_guava",
-        "@com_google_http_client_google_http_client",
         "@com_google_inject_guice",
         "@com_squareup_okhttp3_okhttp",
         "@grpc_grpc_java//api",

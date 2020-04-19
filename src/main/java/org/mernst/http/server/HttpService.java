@@ -1,5 +1,6 @@
 package org.mernst.http.server;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.AbstractIdleService;
 import com.google.common.util.concurrent.FutureCallback;
@@ -36,13 +37,32 @@ class HttpService extends AbstractIdleService {
   protected void startUp() {
     server.setExecutor(executor);
     actions.forEach(
-        (path, action) ->
-            server.createContext(
-                path,
-                exchange ->
-                    ScopeContext.create()
-                        .withValue(HttpServiceModule.HTTP_EXCHANGE_KEY, exchange)
-                        .run(() -> execute(action))));
+        (path, action) -> {
+          int noSlash = path.length();
+          while (noSlash > 0 && path.charAt(noSlash - 1) == '/') {
+            --noSlash;
+          }
+          boolean directory = noSlash < path.length();
+          String basePath = path.substring(0, noSlash);
+
+          server.createContext(
+              basePath,
+              exchange ->
+                  ScopeContext.create()
+                      .withValue(HttpServiceModule.HTTP_EXCHANGE_KEY, exchange)
+                      .run(
+                          () -> {
+                            // Prevent arbitrary postfix matches allowed by sun httpserver
+                            // (for example "index.htmlfoo").
+                            String requestPath = exchange.getRequestURI().getPath();
+                            Preconditions.checkArgument(requestPath.startsWith(basePath));
+                            String postfix = requestPath.substring(basePath.length());
+                            execute(
+                                postfix.isEmpty() || (directory && postfix.startsWith("/"))
+                                    ? action
+                                    : () -> () -> Recipe.to(HttpResult.create(404)));
+                          }));
+        });
     server.start();
   }
 
@@ -54,8 +74,8 @@ class HttpService extends AbstractIdleService {
   private void execute(Provider<Action> action) {
     Futures.addCallback(
         Recipe.from(action::get)
-            .flatMap(a -> a.execute(responder.get()))
-            .mapFailure(responder.get()::of)
+            .flatMap(a -> a.execute())
+            .mapFailure(HttpResult::of)
             .consume(this::render)
             .start(executor),
         new FutureCallback<Void>() {
