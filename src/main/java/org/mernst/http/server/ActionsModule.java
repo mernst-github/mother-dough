@@ -4,9 +4,9 @@ import com.google.auto.value.AutoAnnotation;
 import com.google.common.base.Converter;
 import com.google.common.base.Enums;
 import com.google.common.collect.Streams;
-import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
-import com.google.common.io.ByteStreams;
+import com.google.common.hash.HashingOutputStream;
+import com.google.common.io.Resources;
 import com.google.common.primitives.Doubles;
 import com.google.common.primitives.Floats;
 import com.google.common.primitives.Ints;
@@ -29,6 +29,7 @@ import javax.inject.Provider;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.URL;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -64,14 +65,22 @@ public abstract class ActionsModule extends BaseModule {
       String resourceDirectory,
       String relativePath,
       String contentType) {
+    Provider<HttpResponder> responder = getProvider(HttpResponder.class);
+    URL resource = Resources.getResource(baseClass, resourceDirectory.substring(1) + relativePath);
+
+    HashingOutputStream hasher =
+        new HashingOutputStream(Hashing.murmur3_128(0), OutputStream.nullOutputStream());
+    try {
+      Resources.copy(resource, hasher);
+    } catch (IOException io) {
+      throw new IllegalArgumentException(resource.toString(), io);
+    }
+
+    String eTag = String.format("\"%s\"", hasher.hash());
+    HttpResult.Body body =
+        HttpResult.Body.of(contentType, eTag, os -> Plan.of(() -> Resources.copy(resource, os)));
     bindAction(basePath + relativePath)
-        .toInstance(
-            new ResourceAction(
-                baseClass,
-                resourceDirectory,
-                relativePath,
-                contentType,
-                getProvider(HttpResponder.class)));
+        .toInstance(() -> Recipe.to(responder.get().ifUnmodified(body)));
   }
 
   @Override
@@ -81,67 +90,6 @@ public abstract class ActionsModule extends BaseModule {
   }
 
   protected abstract void configureActions();
-
-  static class ResourceAction implements Action {
-    private final Class<?> baseClass;
-    private final String resourceDirectory;
-    private final String relativePath;
-    private final String tag;
-    private final String contentType;
-    private final Provider<HttpResponder> responder;
-
-    ResourceAction(
-        Class<?> baseClass,
-        String resourceDirectory,
-        String relativePath,
-        String contentType,
-        Provider<HttpResponder> responder) {
-      this.contentType = contentType;
-      this.baseClass = baseClass;
-      this.resourceDirectory = resourceDirectory;
-      this.relativePath = relativePath;
-      this.responder = responder;
-
-      try {
-        Hasher hashFunction = Hashing.murmur3_128(0).newHasher();
-        ByteStreams.copy(
-            baseClass.getResourceAsStream(resourceDirectory.substring(1) + relativePath),
-            new OutputStream() {
-              @Override
-              public void write(byte[] b, int off, int len) {
-                hashFunction.putBytes(b, off, len);
-              }
-
-              @Override
-              public void write(int i) {
-                hashFunction.putByte((byte) i);
-              }
-            });
-        tag = String.format("\"%s\"", hashFunction.hash());
-      } catch (IOException io) {
-        throw new IllegalArgumentException(
-            baseClass.getName() + resourceDirectory + relativePath, io);
-      }
-    }
-
-    @Override
-    public Recipe<HttpResult> execute() {
-      return Recipe.to(
-          responder
-              .get()
-              .ifUnmodified(
-                  HttpResult.Body.of(
-                      contentType,
-                      tag,
-                      os ->
-                          Plan.of(
-                              () ->
-                                  ByteStreams.copy(
-                                      baseClass.getResourceAsStream(
-                                          resourceDirectory.substring(1) + relativePath),
-                                      os)))));
-    }
-  }
 }
 
 class BaseModule extends AbstractModule {

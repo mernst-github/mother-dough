@@ -5,15 +5,16 @@ import com.google.common.collect.Maps;
 import org.mernst.collect.Streamable;
 
 import javax.inject.Inject;
+import javax.inject.Provider;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
 public class HttpResponder {
-  private final Map<String, List<String>> requestHeaders;
+  private final Provider<Map<String, List<String>>> requestHeaders;
 
   @Inject
-  HttpResponder(@Headers Map<String, List<String>> requestHeaders) {
+  HttpResponder(@Headers Provider<Map<String, List<String>>> requestHeaders) {
     this.requestHeaders = requestHeaders;
   }
 
@@ -27,7 +28,7 @@ public class HttpResponder {
     return body.eTag()
         .map(
             tag ->
-                requestHeaders.getOrDefault("If-None-Match", ImmutableList.of()).contains(tag)
+                requestHeaders.get().getOrDefault("If-None-Match", ImmutableList.of()).contains(tag)
                     ? HttpResult.notModified()
                     : HttpResult.create(
                         status,
