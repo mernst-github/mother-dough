@@ -62,8 +62,9 @@ the bytes.
 Example:
 ```
 return db.lookup(path).map((contentType, etag, blobref)->
-  responder.of(Body.of(contentType, etag, out -> <load and serve from blobref>)))
+  responder.ifUnmodified(Body.of(contentType, etag, out -> <load and serve from blobref>)))
 ```
 
 Responder will only load the blob when necessary. This is not a CDN replacement,
-of course, you still have to have a serving instance and do the DB lookup.
+of course, you still have to have a serving instance and do the DB lookup, but it
+will lower latency for returning clients. ActionModule's resources make use of this.
