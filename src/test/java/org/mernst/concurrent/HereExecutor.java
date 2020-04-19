@@ -36,6 +36,11 @@ public class HereExecutor implements Executor {
   }
 
   @Override
+  public Executor captureContext() {
+    return this;
+  }
+
+  @Override
   public Executor.Cancellable scheduleAfter(Duration delay, Runnable r) {
     Cancellable cancellable = new Cancellable(r);
     at(now.plus(delay), cancellable);

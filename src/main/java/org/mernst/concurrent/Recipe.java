@@ -26,7 +26,7 @@ public final class Recipe<T> {
     this.impl = impl;
   }
 
-  static <T> Recipe<T> wrap(AsyncSupplier<T> impl) {
+  public static <T> Recipe<T> wrap(AsyncSupplier<T> impl) {
     return new Recipe<>(impl);
   }
 

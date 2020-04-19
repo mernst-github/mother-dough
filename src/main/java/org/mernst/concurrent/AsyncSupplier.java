@@ -1,7 +1,7 @@
 package org.mernst.concurrent;
 
 /** Internal implementation interface of a Recipe. */
-interface AsyncSupplier<T> {
+public interface AsyncSupplier<T> {
   /** Returns the state that will eventually push a result to either receiver. */
   State eval(Receiver<T> onValue, Receiver<Throwable> onFailure);
 

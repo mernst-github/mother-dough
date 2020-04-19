@@ -13,4 +13,6 @@ public interface Executor extends java.util.concurrent.Executor {
   }
 
   Cancellable scheduleAfter(Duration delay, Runnable r);
+
+  Executor captureContext();
 }

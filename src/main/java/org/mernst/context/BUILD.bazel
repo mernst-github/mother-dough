@@ -3,6 +3,7 @@ java_library(
     srcs = glob(["*.java"]),
     visibility = ["//visibility:public"],
     deps = [
+        "//src/main/java/org/mernst/concurrent",
         "@com_google_guava_guava",
         "@com_google_inject_guice",
         "@grpc_grpc_java//context",

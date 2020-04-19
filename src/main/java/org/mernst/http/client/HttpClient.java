@@ -6,12 +6,11 @@ import com.google.api.client.http.HttpHeaders;
 import com.google.api.client.http.HttpRequest;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
-import com.google.common.util.concurrent.SettableFuture;
-import io.grpc.Context;
 import io.grpc.Metadata;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import okhttp3.*;
+import org.mernst.concurrent.AsyncSupplier;
 import org.mernst.concurrent.Recipe;
 import org.mernst.functional.ThrowingSupplier;
 import org.mernst.metrics.Metric;
@@ -35,25 +34,26 @@ public class HttpClient {
   }
 
   private Recipe<Response> request(ThrowingSupplier<Request> request) {
-    return Recipe.fromFuture(
-        () -> {
-          SettableFuture<Response> future = SettableFuture.create();
-          Context context = Context.current();
-          ok.newCall(request.get())
-              .enqueue(
-                  new Callback() {
-                    @Override
-                    public void onFailure(Call call, IOException e) {
-                      context.run(() -> future.setException(e));
-                    }
+    return Recipe.wrap(
+        (onValue, onFailure) ->
+            AsyncSupplier.State.startIo(
+                (executor, whenDone) -> {
+                  ok.newCall(request.get())
+                      .enqueue(
+                          new Callback() {
+                            @Override
+                            public void onFailure(Call call, IOException e) {
+                              whenDone.resumeWith(AsyncSupplier.State.push(onFailure, e));
+                            }
 
-                    @Override
-                    public void onResponse(Call call, Response response) throws IOException {
-                      context.run(() -> future.set(response));
-                    }
-                  });
-          return future;
-        });
+                            @Override
+                            public void onResponse(Call call, Response response) {
+                              whenDone.resumeWith(AsyncSupplier.State.push(onValue, response));
+                            }
+                          });
+                  return () -> {};
+                },
+                onFailure));
   }
 
   public Recipe<ResponseBody> get(String url) {
@@ -122,7 +122,8 @@ public class HttpClient {
   public <T> void recordLatency(
       Instant start, AbstractGoogleClientRequest<T> request, Status.Code status) {
     apiRequestLatency.record(
-        ImmutableMap.of("request", request.getClass().getCanonicalName(), "status", status.toString()),
+        ImmutableMap.of(
+            "request", request.getClass().getCanonicalName(), "status", status.toString()),
         Duration.between(start, Instant.now()).toNanos());
   }
 

@@ -109,6 +109,7 @@ class Computation implements Executor.Cancellable {
     // That worked, now start the async activity and receive the cancellation cb.
     Executor.Cancellable cb;
     try {
+      Executor executor = this.executor.captureContext();
       cb =
           state
               .io()
