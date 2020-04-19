@@ -130,7 +130,6 @@ public abstract class ActionsModule extends BaseModule {
           responder
               .get()
               .ifUnmodified(
-                  200,
                   HttpResult.Body.of(
                       contentType,
                       tag,

@@ -20,24 +20,18 @@ class HttpService extends AbstractIdleService {
   private final HttpServer server;
   private final Executor executor;
   private final ImmutableMap<String, Provider<Action>> actions;
-  private final Provider<HttpResponder> responder;
 
-  HttpService(
-      HttpServer server,
-      Executor executorService,
-      Map<String, Provider<Action>> actions,
-      Provider<HttpResponder> responder) {
+  HttpService(HttpServer server, Executor executorService, Map<String, Provider<Action>> actions) {
     this.server = server;
     this.executor = executorService;
     this.actions = ImmutableMap.copyOf(actions);
-    this.responder = responder;
   }
 
   @Override
   protected void startUp() {
     server.setExecutor(executor);
     actions.forEach(
-        (path, action) -> {
+        (path, boundAction) -> {
           int noSlash = path.length();
           while (noSlash > 0 && path.charAt(noSlash - 1) == '/') {
             --noSlash;
@@ -51,19 +45,22 @@ class HttpService extends AbstractIdleService {
                   ScopeContext.create()
                       .withValue(HttpServiceModule.HTTP_EXCHANGE_KEY, exchange)
                       .run(
-                          () -> {
-                            // Prevent arbitrary postfix matches allowed by sun httpserver
-                            // (for example "index.htmlfoo").
-                            String requestPath = exchange.getRequestURI().getPath();
-                            Preconditions.checkArgument(requestPath.startsWith(basePath));
-                            String postfix = requestPath.substring(basePath.length());
-                            execute(
-                                postfix.isEmpty() || (directory && postfix.startsWith("/"))
-                                    ? action
-                                    : () -> () -> Recipe.to(HttpResult.create(404)));
-                          }));
+                          () ->
+                              execute(
+                                  matches(exchange, basePath, directory)
+                                      ? boundAction.get()
+                                      : () -> Recipe.to(HttpResult.create(404)))));
         });
     server.start();
+  }
+
+  private static boolean matches(HttpExchange exchange, String basePath, boolean directory) {
+    // Prevent arbitrary postfix matches allowed by sun httpserver
+    // (for example "index.htmlfoo").
+    String requestPath = exchange.getRequestURI().getPath();
+    Preconditions.checkArgument(requestPath.startsWith(basePath));
+    String postfix = requestPath.substring(basePath.length());
+    return postfix.isEmpty() || (directory && postfix.startsWith("/"));
   }
 
   @Override
@@ -71,10 +68,10 @@ class HttpService extends AbstractIdleService {
     server.stop(0);
   }
 
-  private void execute(Provider<Action> action) {
+  private void execute(Action action) {
     Futures.addCallback(
-        Recipe.from(action::get)
-            .flatMap(a -> a.execute())
+        Recipe.to(action)
+            .flatMap(Action::execute)
             .mapFailure(HttpResult::of)
             .consume(this::render)
             .start(executor),
