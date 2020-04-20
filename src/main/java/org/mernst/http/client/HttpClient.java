@@ -6,9 +6,12 @@ import com.google.api.client.http.HttpHeaders;
 import com.google.api.client.http.HttpRequest;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
+import io.grpc.Context;
+import io.grpc.Deadline;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import okhttp3.*;
+import org.mernst.concurrent.Executor;
 import org.mernst.concurrent.Recipe;
 import org.mernst.functional.ThrowingSupplier;
 import org.mernst.metrics.Metric;
@@ -19,6 +22,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import java.util.stream.Stream;
 
 public class HttpClient {
@@ -37,20 +42,16 @@ public class HttpClient {
             r ->
                 Recipe.io(
                     (executor, whenDone) -> {
-                      ok.newCall(r)
-                          .enqueue(
-                              new Callback() {
-                                @Override
-                                public void onFailure(Call call, IOException e) {
-                                  whenDone.accept(Recipe.failed(e));
-                                }
-
-                                @Override
-                                public void onResponse(Call call, Response response) {
-                                  whenDone.accept(Recipe.to(response));
-                                }
-                              });
-                      return () -> {};
+                      OkHttpClient ok = this.ok;
+                      Deadline deadline = Context.current().getDeadline();
+                      if (deadline != null) {
+                        ok =
+                            ok.newBuilder()
+                                .callTimeout(
+                                    Duration.ofNanos(deadline.timeRemaining(TimeUnit.NANOSECONDS)))
+                                .build();
+                      }
+                      return new OkCall(ok.newCall(r), whenDone).start();
                     }));
   }
 
@@ -138,5 +139,41 @@ public class HttpClient {
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
     content.writeTo(baos);
     return RequestBody.create(baos.toByteArray(), MediaType.get(content.getType()));
+  }
+
+  private static class OkCall implements Callback {
+    private volatile boolean cancelled = false;
+    private final Call call;
+    private final Consumer<Recipe<Response>> whenDone;
+
+    public OkCall(Call call, Consumer<Recipe<Response>> whenDone) {
+      this.call = call;
+      this.whenDone = whenDone;
+    }
+
+    @Override
+    public void onFailure(Call call, IOException e) {
+      if (cancelled) {
+        return;
+      }
+      whenDone.accept(Recipe.failed(e));
+    }
+
+    @Override
+    public void onResponse(Call call, Response response) {
+      if (cancelled) {
+        response.close();
+        return;
+      }
+      whenDone.accept(Recipe.to(response));
+    }
+
+    public Executor.Cancellable start() {
+      call.enqueue(this);
+      return () -> {
+        call.cancel();
+        cancelled = true;
+      };
+    }
   }
 }
