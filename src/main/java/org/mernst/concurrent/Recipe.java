@@ -15,52 +15,55 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Optional;
+import java.util.function.Consumer;
 import java.util.stream.Stream;
 
-import static org.mernst.concurrent.AsyncSupplier.State.*;
+import static org.mernst.concurrent.AsyncSupplier.State.pull;
+import static org.mernst.concurrent.AsyncSupplier.State.startIo;
 
 public final class Recipe<T> {
   final AsyncSupplier<T> impl;
 
-  public Recipe(AsyncSupplier<T> impl) {
+  Recipe(AsyncSupplier<T> impl) {
     this.impl = impl;
   }
 
-  public static <T> Recipe<T> wrap(AsyncSupplier<T> impl) {
+  static <T> Recipe<T> wrap(AsyncSupplier<T> impl) {
     return new Recipe<>(impl);
   }
 
-  public static <T> Recipe<T> fromFuture(ThrowingSupplier<? extends ListenableFuture<T>> f) {
-    return wrap(
-        (onValue, onFailure) ->
-            startIo(
-                (executor, resumable) -> {
-                  ListenableFuture<T> future = f.get();
-                  Futures.addCallback(
-                      future,
-                      new FutureCallback<T>() {
-                        @Override
-                        public void onSuccess(T value) {
-                          resumable.resumeWith(push(onValue, value));
-                        }
+  public static <T> Recipe<T> io(IO<T> io) {
+    return wrap((onValue, onFailure) -> startIo(io, onValue, onFailure));
+  }
 
-                        @Override
-                        public void onFailure(Throwable failure) {
-                          resumable.resumeWith(push(onFailure, failure));
-                        }
-                      },
-                      executor);
-                  return () -> future.cancel(false);
-                },
-                onFailure));
+  public static <T> Recipe<T> fromFuture(ThrowingSupplier<? extends ListenableFuture<T>> f) {
+    return io(
+        (executor, whenDone) -> {
+          ListenableFuture<T> future = f.get();
+          Futures.addCallback(
+              future,
+              new FutureCallback<T>() {
+                @Override
+                public void onSuccess(T value) {
+                  whenDone.accept(to(value));
+                }
+
+                @Override
+                public void onFailure(Throwable failure) {
+                  whenDone.accept(failed(failure));
+                }
+              },
+              executor);
+          return () -> future.cancel(false);
+        });
   }
 
   public static <T> Recipe<T> to(T t) {
-    return wrap((onValue, onFailure) -> push(onValue, t));
+    return wrap((onValue, onFailure) -> onValue.receive(t));
   }
 
   public static <T> Recipe<T> failed(Throwable t) {
-    return wrap((onValue, onFailure) -> push(onFailure, t));
+    return wrap((onValue, onFailure) -> onFailure.receive(t));
   }
 
   public static <T> Recipe<T> from(ThrowingSupplier<T> s) {
@@ -108,9 +111,9 @@ public final class Recipe<T> {
                   try {
                     mapped = mapping.apply(value);
                   } catch (Throwable failure) {
-                    return push(onFailure, failure);
+                    return onFailure.receive(failure);
                   }
-                  return push(onValue, mapped);
+                  return onValue.receive(mapped);
                 },
                 onFailure));
   }
@@ -135,11 +138,9 @@ public final class Recipe<T> {
                             : Optional.empty();
                   } catch (Throwable t) {
                     t.addSuppressed(failure);
-                    return push(onFailure, t);
+                    return onFailure.receive(t);
                   }
-                  return mapped
-                      .map(v -> push(onValue, v))
-                      .orElseGet(() -> push(onFailure, failure));
+                  return mapped.map(onValue::receive).orElseGet(() -> onFailure.receive(failure));
                 }));
   }
 
@@ -162,8 +163,7 @@ public final class Recipe<T> {
     return flatMapFailure(Throwable.class, failureMapping);
   }
 
-  public Recipe<T> afterwards(
-          ThrowingConsumer<T> onSuccess, ThrowingConsumer<Throwable> onError) {
+  public Recipe<T> afterwards(ThrowingConsumer<T> onSuccess, ThrowingConsumer<Throwable> onError) {
     return wrap(
         (onValue, onFailure) ->
             pull(
@@ -172,9 +172,9 @@ public final class Recipe<T> {
                   try {
                     onSuccess.accept(t);
                   } catch (Throwable failure) {
-                    return push(onFailure, failure);
+                    return onFailure.receive(failure);
                   }
-                  return push(onValue, t);
+                  return onValue.receive(t);
                 },
                 f -> {
                   try {
@@ -182,7 +182,7 @@ public final class Recipe<T> {
                   } catch (Throwable failure) {
                     f.addSuppressed(failure);
                   }
-                  return push(onFailure, f);
+                  return onFailure.receive(f);
                 }));
   }
 
@@ -195,13 +195,7 @@ public final class Recipe<T> {
   }
 
   public Recipe<T> after(Duration delay) {
-    return Recipe.wrap(
-        (onValue, onFailure) ->
-            startIo(
-                (executor, resumable) ->
-                    executor.scheduleAfter(
-                        delay, () -> resumable.resumeWith(pull(impl, onValue, onFailure))),
-                onFailure));
+    return io((executor, whenDone) -> executor.scheduleAfter(delay, () -> whenDone.accept(this)));
   }
 
   public <F extends Throwable> Recipe<T> retryingOn(
@@ -294,5 +288,14 @@ public final class Recipe<T> {
               }
               return results;
             });
+  }
+
+  /**
+   * IO is a multi-way handshake. We first call #start, which is allowed to fail or returns a
+   * Cancellable. It receives a whenDone callback which it must call with a replacement recipe which
+   * will continue computation, unless cancelled in which case whenDone doesn't need to be called.
+   */
+  public interface IO<T> {
+    Executor.Cancellable start(Executor executor, Consumer<Recipe<T>> whenDone) throws Throwable;
   }
 }

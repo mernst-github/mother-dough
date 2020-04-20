@@ -7,17 +7,17 @@ import org.mernst.functional.*;
 
 import java.util.*;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.stream.Collector;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
-import static org.mernst.concurrent.AsyncSupplier.State.*;
+import static org.mernst.concurrent.AsyncSupplier.State.pull;
+import static org.mernst.concurrent.AsyncSupplier.State.startIo;
 
-/**
- * Accumulation support for multiple recipes.
- */
+/** Accumulation support for multiple recipes. */
 public interface Recipes<T> extends Streamable<Recipe<T>> {
   default int parallelism() {
     return Integer.MAX_VALUE;
@@ -108,25 +108,24 @@ public interface Recipes<T> extends Streamable<Recipe<T>> {
               try {
                 zero = supplier.get();
               } catch (Throwable t) {
-                return push(onFailure, t);
+                return onFailure.receive(t);
               }
               Iterator<Recipe<T>> inputs = stream().iterator();
               if (!inputs.hasNext()) {
-                return push(onValue, zero);
+                return onValue.receive(zero);
               }
               return startIo(
-                  (executor, resumable) ->
+                  (executor, whenDone) ->
                       new Accumulation<>(
                               executor,
-                              resumable,
+                              whenDone,
                               inputs,
                               parallelism(),
                               zero,
                               accumulator,
-                              terminator,
-                              onValue,
-                              onFailure)
+                              terminator)
                           .start(),
+                  onValue,
                   onFailure);
             })
         .map(finisher);
@@ -164,15 +163,13 @@ class Indexed<T> {
   }
 }
 
-class Accumulation<T, U> implements Executor.Cancellable {
+class Accumulation<T, U> {
   private final Executor executor;
-  final AsyncSupplier.State.IO.Resumable parent;
+  final Consumer<Recipe<U>> parent;
   final Iterator<Recipe<T>> inputs;
   int parallelism;
   final ThrowingBiFunction<U, T, U> accumulator;
   final ThrowingPredicate<U> terminator;
-  final AsyncSupplier.Receiver<U> onValue;
-  final AsyncSupplier.Receiver<Throwable> onFailure;
 
   U accu;
   Throwable failure = null;
@@ -181,28 +178,24 @@ class Accumulation<T, U> implements Executor.Cancellable {
 
   public Accumulation(
       Executor executor,
-      AsyncSupplier.State.IO.Resumable parent,
+      Consumer<Recipe<U>> parent,
       Iterator<Recipe<T>> inputs,
       int parallelism,
       U zero,
       ThrowingBiFunction<U, T, U> accumulator,
-      ThrowingPredicate<U> terminator,
-      AsyncSupplier.Receiver<U> onValue,
-      AsyncSupplier.Receiver<Throwable> onFailure) {
+      ThrowingPredicate<U> terminator) {
     this.executor = executor;
     this.parent = parent;
     this.inputs = inputs;
     this.parallelism = parallelism;
     this.accumulator = accumulator;
     this.terminator = terminator;
-    this.onValue = onValue;
-    this.onFailure = onFailure;
     this.accu = zero;
   }
 
-  Accumulation start() {
+  Executor.Cancellable start() {
     startOne();
-    return this;
+    return this::cancel;
   }
 
   private synchronized void startOne() {
@@ -248,7 +241,7 @@ class Accumulation<T, U> implements Executor.Cancellable {
 
   void queueNotification() {
     cancel();
-    parent.resumeWith((failure != null) ? push(onFailure, failure) : push(onValue, accu));
+    parent.accept((failure != null) ? Recipe.failed(failure) : Recipe.to(accu));
   }
 
   void start(Recipe<T> recipe) {
@@ -263,8 +256,7 @@ class Accumulation<T, U> implements Executor.Cancellable {
                     failure -> onInputFailure(child, failure))));
   }
 
-  @Override
-  public void cancel() {
+  private void cancel() {
     running.forEach(Computation::cancel);
   }
 }

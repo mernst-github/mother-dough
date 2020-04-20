@@ -6,11 +6,9 @@ import com.google.api.client.http.HttpHeaders;
 import com.google.api.client.http.HttpRequest;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
-import io.grpc.Metadata;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import okhttp3.*;
-import org.mernst.concurrent.AsyncSupplier;
 import org.mernst.concurrent.Recipe;
 import org.mernst.functional.ThrowingSupplier;
 import org.mernst.metrics.Metric;
@@ -34,31 +32,31 @@ public class HttpClient {
   }
 
   private Recipe<Response> request(ThrowingSupplier<Request> request) {
-    return Recipe.wrap(
-        (onValue, onFailure) ->
-            AsyncSupplier.State.startIo(
-                (executor, whenDone) -> {
-                  ok.newCall(request.get())
-                      .enqueue(
-                          new Callback() {
-                            @Override
-                            public void onFailure(Call call, IOException e) {
-                              whenDone.resumeWith(AsyncSupplier.State.push(onFailure, e));
-                            }
+    return Recipe.from(request)
+        .flatMap(
+            r ->
+                Recipe.io(
+                    (executor, whenDone) -> {
+                      ok.newCall(r)
+                          .enqueue(
+                              new Callback() {
+                                @Override
+                                public void onFailure(Call call, IOException e) {
+                                  whenDone.accept(Recipe.failed(e));
+                                }
 
-                            @Override
-                            public void onResponse(Call call, Response response) {
-                              whenDone.resumeWith(AsyncSupplier.State.push(onValue, response));
-                            }
-                          });
-                  return () -> {};
-                },
-                onFailure));
+                                @Override
+                                public void onResponse(Call call, Response response) {
+                                  whenDone.accept(Recipe.to(response));
+                                }
+                              });
+                      return () -> {};
+                    }));
   }
 
   public Recipe<ResponseBody> get(String url) {
     return request(() -> new Request.Builder().url(url).build())
-        .map(Response::body)
+        .map(HttpClient::okBody)
         .flatMap(
             body ->
                 Recipe.from(() -> ResponseBody.create(body.byteString(), body.contentType()))
@@ -127,25 +125,11 @@ public class HttpClient {
         Duration.between(start, Instant.now()).toNanos());
   }
 
-  static <T> Metadata.BinaryMarshaller<T> noMarshalling() {
-    return new Metadata.BinaryMarshaller<T>() {
-      @Override
-      public byte[] toBytes(T value) {
-        throw new UnsupportedOperationException();
-      }
-
-      @Override
-      public T parseBytes(byte[] serialized) {
-        throw new UnsupportedOperationException();
-      }
-    };
-  }
-
   public Headers headers(HttpHeaders headers) {
     Headers.Builder result = new Headers.Builder();
     Stream.of("authorization")
-        .flatMap(k -> headers.getHeaderStringValues(k).stream().map(v -> Maps.immutableEntry(k, v)))
-        .forEach(e -> result.add(e.getKey(), e.getValue()));
+        .map(k -> Maps.immutableEntry(k, headers.getHeaderStringValues(k)))
+        .forEach(e -> e.getValue().forEach(v -> result.add(e.getKey(), v)));
     return result.build();
   }
 

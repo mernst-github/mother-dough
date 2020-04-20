@@ -1,7 +1,7 @@
 package org.mernst.concurrent;
 
 /** Internal implementation interface of a Recipe. */
-public interface AsyncSupplier<T> {
+interface AsyncSupplier<T> {
   /** Returns the state that will eventually push a result to either receiver. */
   State eval(Receiver<T> onValue, Receiver<Throwable> onFailure);
 
@@ -16,35 +16,16 @@ public interface AsyncSupplier<T> {
    */
   interface State {
     /**
-     * Starts evaluating the given supplier and will eventually call onValue or onError, unless cancelled.
+     * Starts evaluating the given supplier and will eventually call onValue or onError, unless
+     * cancelled.
      */
     static <T> State pull(
         AsyncSupplier<T> supplier, Receiver<T> onValue, Receiver<Throwable> onError) {
       return new AutoValue_Computation_Pull<>(supplier, onValue, onError);
     }
 
-    /**
-     * Calls onValue and continues with its result.
-     */
-    static <T> State push(Receiver<T> onValue, T value) {
-      return new AutoValue_Computation_Push<>(onValue, value);
-    }
-
-    /**
-     * IO is a multi-way handshake. State startIO calls #start, which is allowed to fail or returns
-     * a Cancellable. When started, it receives a Resumable which it must call when IO finishes or
-     * is being cancelled.
-     */
-    interface IO {
-      interface Resumable {
-        void resumeWith(State state);
-      }
-
-      Executor.Cancellable start(Executor executor, Resumable whenDone) throws Throwable;
-    }
-
-    static State startIo(IO io, Receiver<Throwable> onError) {
-      return new AutoValue_Computation_StartIo(io, onError);
+    static <T> State startIo(Recipe.IO<T> io, Receiver<T> onValue, Receiver<Throwable> onError) {
+      return new AutoValue_Computation_StartIo<>(io, onValue, onError);
     }
   }
 }

@@ -9,7 +9,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
-import static org.mernst.concurrent.AsyncSupplier.State.push;
+import static org.mernst.concurrent.AsyncSupplier.State.pull;
 
 /**
  * The state machine of an ongoing evaluation which would be fairly simple except for IO and
@@ -40,8 +40,10 @@ class Computation implements Executor.Cancellable {
   }
 
   @AutoValue
-  abstract static class StartIo implements AsyncSupplier.State {
-    abstract IO io();
+  abstract static class StartIo<T> implements AsyncSupplier.State {
+    abstract Recipe.IO<T> io();
+
+    abstract AsyncSupplier.Receiver<T> onSuccess();
 
     abstract AsyncSupplier.Receiver<Throwable> onError();
   }
@@ -79,20 +81,20 @@ class Computation implements Executor.Cancellable {
           break;
         }
       } else if (state instanceof StartIo) {
-        state = transitionFrom((StartIo) state);
+        state = transitionFrom((StartIo<?>) state);
       }
     }
   }
 
   <T> AsyncSupplier.State transitionFrom(Pull<T> state) {
-    return state.supplier().eval(state.onValue(), state.onFailure());
+    return state.supplier().eval(t -> push(state.onValue(), t), t -> push(state.onFailure(), t));
   }
 
   <T> AsyncSupplier.State transitionFrom(Push<T> state) {
     return state.receiver().receive(state.value());
   }
 
-  public AsyncSupplier.State transitionFrom(StartIo state) {
+  public <T> AsyncSupplier.State transitionFrom(StartIo<T> state) {
     // Can't do that atomically, instead we go through two steps.
     // First, install a dummy, but unique cb value.
     Executor.Cancellable prepare = () -> {};
@@ -113,7 +115,11 @@ class Computation implements Executor.Cancellable {
       cb =
           state
               .io()
-              .start(executor, resumptionState -> executor.execute(() -> resume(resumptionState)));
+              .start(
+                  executor,
+                  recipe ->
+                      executor.execute(
+                          () -> resume(pull(recipe.impl, state.onSuccess(), state.onError()))));
     } catch (Throwable throwable) {
       // starting IO failed, rethrow.
       this.cancellationCb.compareAndSet(prepare, NONE);
@@ -146,5 +152,10 @@ class Computation implements Executor.Cancellable {
   public void cancel() {
     Executor.Cancellable cb = this.cancellationCb.getAndSet(CANCELLED);
     if (cb != CANCELLED && cb != NONE) executor.execute(cb::cancel);
+  }
+
+  /** Calls onValue and continues with its result. */
+  private static <T> AsyncSupplier.State push(AsyncSupplier.Receiver<T> onValue, T value) {
+    return new AutoValue_Computation_Push<>(onValue, value);
   }
 }

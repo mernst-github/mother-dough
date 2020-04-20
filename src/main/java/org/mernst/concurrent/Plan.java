@@ -9,11 +9,9 @@ import org.mernst.functional.ThrowingSupplier;
 
 import java.util.Iterator;
 
-import static org.mernst.concurrent.AsyncSupplier.State.push;
-
 /** A better api for a Recipe&lt;Void&gt;. */
 public final class Plan {
-  private static final Plan NONE = new Plan((onValue, onFailure) -> push(onValue, null));
+  private static final Plan NONE = new Plan((onValue, onFailure) -> onValue.receive(null));
 
   final AsyncSupplier<Void> impl;
 
