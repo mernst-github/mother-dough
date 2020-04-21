@@ -226,24 +226,29 @@ public class RecipeTest {
   public void cancel() {
     Slot result = new Slot();
     Slot failure = new Slot();
-    Computation c = new Computation(pool);
+    Computation<Object> c = new Computation<>(pool);
     pool.execute(
         () ->
-            c.run(
-                AsyncSupplier.State.pull(
-                    Recipe.from(
-                            () -> {
-                              c.cancel();
-                              return new Object();
-                            })
-                        .impl,
-                    result::set,
-                    failure::set)));
+            c.start(
+                Recipe.from(
+                        () -> {
+                          c.cancel(null);
+                          return null;
+                        })
+                    .flatMap(
+                        o ->
+                            Recipe.io(
+                                (executor, whenDone) ->
+                                    executor.scheduleAfter(
+                                        Duration.ZERO, () -> whenDone.accept(Recipe.to(o)))))
+                    .impl,
+                result::set,
+                failure::set));
 
     pool.run();
-    assertTrue(c.isCancelled());
+    assertNull(c.context.get());
     assertFalse(result.set);
-    assertFalse(failure.set);
+    assertTrue(failure.set);
   }
 
   @Test

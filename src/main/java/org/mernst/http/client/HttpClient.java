@@ -7,7 +7,6 @@ import com.google.api.client.http.HttpRequest;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import io.grpc.Context;
-import io.grpc.Deadline;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import okhttp3.*;
@@ -22,6 +21,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
@@ -42,16 +42,23 @@ public class HttpClient {
             r ->
                 Recipe.io(
                     (executor, whenDone) -> {
-                      OkHttpClient ok = this.ok;
-                      Deadline deadline = Context.current().getDeadline();
+                      Duration deadline =
+                          Optional.ofNullable(Context.current().getDeadline())
+                              .map(dl -> Duration.ofNanos(dl.timeRemaining(TimeUnit.NANOSECONDS)))
+                              .orElse(null);
+                      OkHttpClient deadlineClient = this.ok;
+                      Request deadlineRequest = r;
                       if (deadline != null) {
-                        ok =
-                            ok.newBuilder()
-                                .callTimeout(
-                                    Duration.ofNanos(deadline.timeRemaining(TimeUnit.NANOSECONDS)))
+                        deadlineClient = deadlineClient.newBuilder().callTimeout(deadline).build();
+                        deadlineRequest =
+                            deadlineRequest
+                                .newBuilder()
+                                .addHeader(
+                                    "Request-Timeout",
+                                    String.valueOf(Math.max(1, deadline.getSeconds())))
                                 .build();
                       }
-                      return new OkCall(ok.newCall(r), whenDone).start();
+                      return new OkCall(deadlineClient.newCall(deadlineRequest), whenDone).start();
                     }));
   }
 

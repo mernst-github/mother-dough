@@ -12,7 +12,6 @@ import java.time.Duration;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Supplier;
 
 public class ExecutorModule extends AbstractModule {
   @Override
@@ -28,18 +27,15 @@ public class ExecutorModule extends AbstractModule {
         new ScheduledThreadPoolExecutor(Runtime.getRuntime().availableProcessors());
 
     pool.setRemoveOnCancelPolicy(true);
-    ListeningScheduledExecutorService executorService = MoreExecutors.listeningDecorator(pool);
-    return new PropagatingExecutor(executorService, Context::current);
+    return new PropagatingExecutor(MoreExecutors.listeningDecorator(pool));
   }
 
   private static class PropagatingExecutor implements Executor {
     private final ListeningScheduledExecutorService executorService;
-    private final Supplier<Context> context;
 
     public PropagatingExecutor(
-        ListeningScheduledExecutorService executorService, Supplier<Context> context) {
+        ListeningScheduledExecutorService executorService) {
       this.executorService = executorService;
-      this.context = context;
     }
 
     @Override
@@ -55,13 +51,7 @@ public class ExecutorModule extends AbstractModule {
     }
 
     private Runnable wrap(Runnable r) {
-      return context.get().wrap(r);
-    }
-
-    @Override
-    public Executor captureContext() {
-      Context context = this.context.get();
-      return new PropagatingExecutor(executorService, () -> context);
+      return Context.current().wrap(r);
     }
   }
 }

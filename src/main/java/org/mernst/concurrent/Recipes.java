@@ -2,6 +2,7 @@ package org.mernst.concurrent;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Streams;
+import io.grpc.Context;
 import org.mernst.collect.Streamable;
 import org.mernst.functional.*;
 
@@ -14,7 +15,6 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
-import static org.mernst.concurrent.AsyncSupplier.State.pull;
 import static org.mernst.concurrent.AsyncSupplier.State.startIo;
 
 /** Accumulation support for multiple recipes. */
@@ -174,7 +174,7 @@ class Accumulation<T, U> {
   U accu;
   Throwable failure = null;
   boolean terminated = false;
-  Set<Computation> running = new HashSet<>();
+  Set<Computation<T>> running = new HashSet<>();
 
   public Accumulation(
       Executor executor,
@@ -195,7 +195,9 @@ class Accumulation<T, U> {
 
   Executor.Cancellable start() {
     startOne();
-    return this::cancel;
+    // Our child computations are cancelled via forking off the parent context, so we don't need to
+    // implement propagation.
+    return () -> {};
   }
 
   private synchronized void startOne() {
@@ -206,10 +208,10 @@ class Accumulation<T, U> {
     }
   }
 
-  public synchronized AsyncSupplier.State onInputValue(Computation child, T inputValue) {
+  public synchronized void onInputValue(Computation<T> child, T inputValue) {
     running.remove(child);
     if (terminated || failure != null) {
-      return null;
+      return;
     }
     try {
       accu = accumulator.apply(accu, inputValue);
@@ -226,17 +228,15 @@ class Accumulation<T, U> {
       }
     }
     if (notify) queueNotification();
-    return null;
   }
 
-  public synchronized AsyncSupplier.State onInputFailure(Computation child, Throwable failure) {
+  public synchronized void onInputFailure(Computation<T> child, Throwable failure) {
     running.remove(child);
     if (terminated || this.failure != null) {
-      return null;
+      return;
     }
     this.failure = failure;
     queueNotification();
-    return null;
   }
 
   void queueNotification() {
@@ -245,18 +245,18 @@ class Accumulation<T, U> {
   }
 
   void start(Recipe<T> recipe) {
-    Computation child = new Computation(executor);
+    Context current = Context.current();
+    Computation<T> child = new Computation<>(executor);
     running.add(child);
     executor.execute(
         () ->
-            child.run(
-                pull(
-                    recipe.impl,
-                    value -> onInputValue(child, value),
-                    failure -> onInputFailure(child, failure))));
+            child.start(
+                recipe.impl,
+                value -> current.run(() -> onInputValue(child, value)),
+                failure -> current.run(() -> onInputFailure(child, failure))));
   }
 
   private void cancel() {
-    running.forEach(Computation::cancel);
+    running.forEach(c -> c.cancel(null));
   }
 }

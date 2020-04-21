@@ -15,6 +15,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Optional;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
@@ -74,29 +75,16 @@ public final class Recipe<T> {
     SettableFuture<T> result = SettableFuture.create();
     e.execute(
         () -> {
-          Computation c = new Computation(e);
+          Computation<T> c = new Computation<T>(e);
           result.addListener(
               () -> {
                 if (result.isCancelled()) {
-                  c.cancel();
+                  c.cancel(null);
                 }
               },
               e);
 
-          c.run(
-              pull(
-                  impl,
-                  // c might be cancelled already, but only because result is, and result will
-                  // ignore
-                  // these setters.
-                  value -> {
-                    result.set(value);
-                    return null;
-                  },
-                  value -> {
-                    result.setException(value);
-                    return null;
-                  }));
+          c.start(impl, result::set, result::setException);
         });
     return result;
   }
@@ -119,7 +107,7 @@ public final class Recipe<T> {
   }
 
   public Recipe<T> mapFailure(ThrowingFunction<Throwable, T> failureMapping) {
-    return mapFailure(Throwable.class, f -> Optional.of(failureMapping.apply(f)));
+    return mapFailure(Throwable.class, f -> Optional.ofNullable(failureMapping.apply(f)));
   }
 
   public <F extends Throwable> Recipe<T> mapFailure(
@@ -214,16 +202,23 @@ public final class Recipe<T> {
   }
 
   public Recipe<T> withDeadline(Duration deadline) {
-    return Recipes.of(
-            this,
-            Recipe.<T>from(
-                    () -> {
-                      throw new StatusRuntimeException(
-                          Status.DEADLINE_EXCEEDED.withDescription(deadline.toString()));
-                    })
-                .after(deadline))
-        .first()
-        .map(Optional::get);
+    // (Ab?)using io to start "this" in a new context w/ deadline.
+    return Recipe.<T>io(
+            (executor, whenDone) ->
+                new Computation<T>(executor)
+                    .start(
+                        impl,
+                        t -> whenDone.accept(to(t)),
+                        t -> whenDone.accept(failed(t)),
+                        deadline))
+        .flatMapFailure(
+            TimeoutException.class,
+            t ->
+                Recipe.failed(
+                    new StatusRuntimeException(
+                        Status.DEADLINE_EXCEEDED
+                            .withDescription(deadline.toString())
+                            .withCause(t))));
   }
 
   static class ResultOrFailure<T> {
