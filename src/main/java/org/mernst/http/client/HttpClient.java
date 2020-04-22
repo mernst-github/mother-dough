@@ -45,34 +45,28 @@ public class HttpClient {
                     .afterwards(body::close));
   }
 
-  public <T> Recipe<T> get(ThrowingSupplier<? extends AbstractGoogleClientRequest<T>> r) {
-    return Recipe.from(r)
-        .flatMap(
-            request -> {
-              Instant start = Instant.now();
-              HttpRequest httpRequest = request.buildHttpRequest();
-              return request(
-                      () ->
-                          new Request.Builder()
-                              .url(request.buildHttpRequestUrl().toString())
-                              .method(
-                                  httpRequest.getRequestMethod(), body(httpRequest.getContent()))
-                              .headers(headers(httpRequest.getHeaders()))
-                              .build())
-                  .map(HttpClient::okBody)
-                  .map(
-                      body ->
-                          httpRequest
-                              .getParser()
-                              .parseAndClose(
-                                  body.byteStream(),
-                                  body.contentType().charset(),
-                                  request.getResponseClass()))
-                  .afterwards(
-                      success -> recordLatency(start, request, Status.Code.OK),
-                      failure ->
-                          recordLatency(start, request, Status.fromThrowable(failure).getCode()));
-            });
+  public <T> Recipe<T> get(AbstractGoogleClientRequest<T> request) throws IOException {
+    Instant start = Instant.now();
+    HttpRequest httpRequest = request.buildHttpRequest();
+    return request(
+            () ->
+                new Request.Builder()
+                    .url(request.buildHttpRequestUrl().toString())
+                    .method(httpRequest.getRequestMethod(), body(httpRequest.getContent()))
+                    .headers(headers(httpRequest.getHeaders()))
+                    .build())
+        .map(HttpClient::okBody)
+        .map(
+            body ->
+                httpRequest
+                    .getParser()
+                    .parseAndClose(
+                        body.byteStream(),
+                        body.contentType().charset(),
+                        request.getResponseClass()))
+        .afterwards(
+            success -> recordLatency(start, request, Status.Code.OK),
+            failure -> recordLatency(start, request, Status.fromThrowable(failure).getCode()));
   }
 
   private Recipe<Response> request(ThrowingSupplier<Request> request) {
