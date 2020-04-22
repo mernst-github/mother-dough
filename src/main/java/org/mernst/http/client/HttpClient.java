@@ -5,11 +5,11 @@ import com.google.api.client.http.HttpContent;
 import com.google.api.client.http.HttpHeaders;
 import com.google.api.client.http.HttpRequest;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
 import io.grpc.Context;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import okhttp3.*;
+import okhttp3.internal.Version;
 import org.mernst.concurrent.Executor;
 import org.mernst.concurrent.Recipe;
 import org.mernst.functional.ThrowingSupplier;
@@ -24,7 +24,6 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
-import java.util.stream.Stream;
 
 public class HttpClient {
   private final OkHttpClient ok;
@@ -77,25 +76,26 @@ public class HttpClient {
 
   private Recipe<Response> request(ThrowingSupplier<Request> request) {
     return Recipe.from(request)
-            .flatMap(r -> Recipe.io((executor, whenDone) -> new OkCall(call(r), whenDone).start()));
+        .afterwards(System.out::println, t -> {})
+        .flatMap(r -> Recipe.io((executor, whenDone) -> new OkCall(call(r), whenDone).start()));
   }
 
   private Call call(Request r) {
     Duration deadline =
-            Optional.ofNullable(Context.current().getDeadline())
-                    .map(dl -> Duration.ofNanos(dl.timeRemaining(TimeUnit.NANOSECONDS)))
-                    .orElse(null);
+        Optional.ofNullable(Context.current().getDeadline())
+            .map(dl -> Duration.ofNanos(dl.timeRemaining(TimeUnit.NANOSECONDS)))
+            .orElse(null);
     if (deadline == null) {
       return ok.newCall(r);
     }
 
     return ok.newBuilder()
-            .callTimeout(deadline)
-            .build()
-            .newCall(
-                    r.newBuilder()
-                            .addHeader("Request-Timeout", String.valueOf(Math.max(1, deadline.getSeconds())))
-                            .build());
+        .callTimeout(deadline)
+        .build()
+        .newCall(
+            r.newBuilder()
+                .addHeader("Request-Timeout", String.valueOf(Math.max(1, deadline.getSeconds())))
+                .build());
   }
 
   static ResponseBody okBody(Response response) {
@@ -132,9 +132,10 @@ public class HttpClient {
 
   public Headers headers(HttpHeaders headers) {
     Headers.Builder result = new Headers.Builder();
-    Stream.of("authorization")
-        .map(k -> Maps.immutableEntry(k, headers.getHeaderStringValues(k)))
-        .forEach(e -> e.getValue().forEach(v -> result.add(e.getKey(), v)));
+    headers.getHeaderStringValues("authorization").forEach(v -> result.add("authorization", v));
+    headers
+        .getHeaderStringValues("user-agent")
+        .forEach(v -> result.add("user-agent", v + " " + Version.userAgent));
     return result.build();
   }
 
