@@ -24,6 +24,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 public class HttpClient {
   private final OkHttpClient ok;
@@ -131,11 +132,17 @@ public class HttpClient {
 
   public Headers headers(HttpHeaders headers) {
     Headers.Builder result = new Headers.Builder();
-    headers.getHeaderStringValues("authorization").forEach(v -> result.add("authorization", v));
-    headers
-        .getHeaderStringValues("user-agent")
-        .forEach(v -> result.add("user-agent", v + " " + Version.userAgent));
+    copyHeader(headers, "authorization", au -> au, result);
+    copyHeader(headers, "user-agent", ua -> ua + " " + Version.userAgent, result);
     return result.build();
+  }
+
+  private static void copyHeader(
+      HttpHeaders headers,
+      String name,
+      Function<String, String> transform,
+      Headers.Builder result) {
+    headers.getHeaderStringValues(name).stream().map(transform).forEach(v -> result.add(name, v));
   }
 
   public RequestBody body(HttpContent content) throws IOException {
