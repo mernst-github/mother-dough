@@ -266,7 +266,10 @@ public class RecipeTest {
             Recipe.from(() -> this)
                 .withDeadline(Duration.ofSeconds(3))
                 .after(Duration.ofSeconds(5))));
+  }
 
+  @Test
+  public void deadline_triggers() {
     Slot result = new Slot();
     assertSame(
         StatusRuntimeException.class,

@@ -36,32 +36,6 @@ public class HttpClient {
     this.apiRequestLatency = apiRequestLatency;
   }
 
-  private Recipe<Response> request(ThrowingSupplier<Request> request) {
-    return Recipe.from(request)
-        .flatMap(
-            r ->
-                Recipe.io(
-                    (executor, whenDone) -> {
-                      Duration deadline =
-                          Optional.ofNullable(Context.current().getDeadline())
-                              .map(dl -> Duration.ofNanos(dl.timeRemaining(TimeUnit.NANOSECONDS)))
-                              .orElse(null);
-                      OkHttpClient deadlineClient = this.ok;
-                      Request deadlineRequest = r;
-                      if (deadline != null) {
-                        deadlineClient = deadlineClient.newBuilder().callTimeout(deadline).build();
-                        deadlineRequest =
-                            deadlineRequest
-                                .newBuilder()
-                                .addHeader(
-                                    "Request-Timeout",
-                                    String.valueOf(Math.max(1, deadline.getSeconds())))
-                                .build();
-                      }
-                      return new OkCall(deadlineClient.newCall(deadlineRequest), whenDone).start();
-                    }));
-  }
-
   public Recipe<ResponseBody> get(String url) {
     return request(() -> new Request.Builder().url(url).build())
         .map(HttpClient::okBody)
@@ -99,6 +73,29 @@ public class HttpClient {
                       failure ->
                           recordLatency(start, request, Status.fromThrowable(failure).getCode()));
             });
+  }
+
+  private Recipe<Response> request(ThrowingSupplier<Request> request) {
+    return Recipe.from(request)
+            .flatMap(r -> Recipe.io((executor, whenDone) -> new OkCall(call(r), whenDone).start()));
+  }
+
+  private Call call(Request r) {
+    Duration deadline =
+            Optional.ofNullable(Context.current().getDeadline())
+                    .map(dl -> Duration.ofNanos(dl.timeRemaining(TimeUnit.NANOSECONDS)))
+                    .orElse(null);
+    if (deadline == null) {
+      return ok.newCall(r);
+    }
+
+    return ok.newBuilder()
+            .callTimeout(deadline)
+            .build()
+            .newCall(
+                    r.newBuilder()
+                            .addHeader("Request-Timeout", String.valueOf(Math.max(1, deadline.getSeconds())))
+                            .build());
   }
 
   static ResponseBody okBody(Response response) {

@@ -144,12 +144,11 @@ class Computation<T> {
               .start(
                   executor,
                   recipe ->
-                      executor.execute(
-                          current.wrap(
-                              () -> {
-                                current.removeListener(listener);
-                                run(pull(recipe.impl, state.onSuccess(), state.onError()));
-                              }))));
+                      current.run(
+                          () -> {
+                            current.removeListener(listener);
+                            run(pull(recipe.impl, state.onSuccess(), state.onError()));
+                          })));
       // We are done, someone else will pick up the baton after us.
       return null;
     } catch (Throwable throwable) {
