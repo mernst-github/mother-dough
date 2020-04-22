@@ -76,7 +76,6 @@ public class HttpClient {
 
   private Recipe<Response> request(ThrowingSupplier<Request> request) {
     return Recipe.from(request)
-        .afterwards(System.out::println, t -> {})
         .flatMap(r -> Recipe.io((executor, whenDone) -> new OkCall(call(r), whenDone).start()));
   }
 
