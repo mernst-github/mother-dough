@@ -7,15 +7,16 @@ import com.google.common.collect.Multimaps;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.*;
 
-public class HereExecutor implements Executor {
+public class HereExecutor implements ScheduledExecutorService {
   Instant start = Instant.now();
   Instant now = start;
 
   // Need: ordering by time and insertion order (to avoid starvation).
   Multimap<Instant, Runnable> todo = Multimaps.newMultimap(new TreeMap<>(), ArrayList::new);
 
-  static class Cancellable implements Runnable {
+  static class Cancellable<T> implements Runnable, ScheduledFuture<Void> {
     private final Runnable body;
     volatile boolean cancelled;
 
@@ -23,13 +24,48 @@ public class HereExecutor implements Executor {
       this.body = body;
     }
 
-    void cancel() {
+    @Override
+    public boolean cancel(boolean b) {
+      if (cancelled) {
+        return false;
+      }
       cancelled = true;
+      return true;
     }
 
     @Override
     public void run() {
       if (!cancelled) body.run();
+    }
+
+    @Override
+    public long getDelay(TimeUnit timeUnit) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public int compareTo(Delayed delayed) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public boolean isCancelled() {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public boolean isDone() {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Void get() throws InterruptedException, ExecutionException {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Void get(long l, TimeUnit timeUnit) throws InterruptedException, ExecutionException, TimeoutException {
+      throw new UnsupportedOperationException();
     }
   }
 
@@ -39,10 +75,10 @@ public class HereExecutor implements Executor {
   }
 
   @Override
-  public Executor.Cancellable scheduleAfter(Duration delay, Runnable r) {
+  public ScheduledFuture<?> schedule(Runnable r, long l, TimeUnit timeUnit) {
     Cancellable cancellable = new Cancellable(r);
-    at(now.plus(delay), cancellable);
-    return cancellable::cancel;
+    at(now.plus(Duration.ofNanos(TimeUnit.NANOSECONDS.convert(l, timeUnit))), cancellable);
+    return cancellable;
   }
 
   private void at(Instant time, Runnable runnable) {
@@ -66,5 +102,80 @@ public class HereExecutor implements Executor {
     ImmutableList<Runnable> result = ImmutableList.copyOf(entry.getValue());
     it.remove();
     return result;
+  }
+
+  @Override
+  public <V> ScheduledFuture<V> schedule(Callable<V> callable, long l, TimeUnit timeUnit) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public ScheduledFuture<?> scheduleAtFixedRate(Runnable runnable, long l, long l1, TimeUnit timeUnit) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public ScheduledFuture<?> scheduleWithFixedDelay(Runnable runnable, long l, long l1, TimeUnit timeUnit) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void shutdown() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public List<Runnable> shutdownNow() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public boolean isShutdown() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public boolean isTerminated() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public boolean awaitTermination(long l, TimeUnit timeUnit) throws InterruptedException {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public <T> Future<T> submit(Callable<T> callable) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public <T> Future<T> submit(Runnable runnable, T t) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public Future<?> submit(Runnable runnable) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public <T> List<Future<T>> invokeAll(Collection<? extends Callable<T>> collection) throws InterruptedException {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public <T> List<Future<T>> invokeAll(Collection<? extends Callable<T>> collection, long l, TimeUnit timeUnit) throws InterruptedException {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public <T> T invokeAny(Collection<? extends Callable<T>> collection) throws InterruptedException, ExecutionException {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public <T> T invokeAny(Collection<? extends Callable<T>> collection, long l, TimeUnit timeUnit) throws InterruptedException, ExecutionException, TimeoutException {
+    throw new UnsupportedOperationException();
   }
 }

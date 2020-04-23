@@ -2,17 +2,14 @@ package org.mernst.http.server;
 
 import com.google.common.util.concurrent.Service;
 import com.google.inject.AbstractModule;
-import com.google.inject.Provider;
 import com.google.inject.Provides;
 import com.google.inject.multibindings.ProvidesIntoSet;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import io.grpc.Context;
 import okhttp3.HttpUrl;
-import org.mernst.concurrent.Executor;
+import org.mernst.context.ContextModule;
 import org.mernst.context.ContextScoped;
-
-import java.util.Map;
 
 public class HttpServiceModule extends AbstractModule {
 
@@ -27,12 +24,18 @@ public class HttpServiceModule extends AbstractModule {
 
   @Override
   protected void configure() {
+    install(ContextModule.create());
     ActionsModule.actionBinder(binder());
   }
 
+  @Provides
+  HttpServer server() {
+    return server;
+  }
+
   @ProvidesIntoSet
-  Service service(Executor executor, Map<String, Provider<Action>> actions) {
-    return new HttpService(server, executor, actions);
+  Service service(HttpService httpService) {
+    return httpService;
   }
 
   @Provides

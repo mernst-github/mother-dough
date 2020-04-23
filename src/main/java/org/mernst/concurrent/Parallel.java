@@ -7,6 +7,7 @@ import org.mernst.collect.Streamable;
 import org.mernst.functional.*;
 
 import java.util.*;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
@@ -18,23 +19,23 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.mernst.concurrent.AsyncSupplier.State.startIo;
 
 /** Accumulation support for multiple recipes. */
-public interface Recipes<T> extends Streamable<Recipe<T>> {
+public interface Parallel<T> extends Streamable<Recipe<T>> {
   default int parallelism() {
     return Integer.MAX_VALUE;
   }
 
-  static <T> Recipes<T> of(Streamable<Recipe<T>> recipes) {
+  static <T> Parallel<T> of(Streamable<Recipe<T>> recipes) {
     return recipes::stream;
   }
 
   @SafeVarargs
-  static <T> Recipes<T> of(Recipe<T>... recipes) {
+  static <T> Parallel<T> of(Recipe<T>... recipes) {
     return () -> Arrays.stream(recipes);
   }
 
-  default Recipes<T> parallelism(int parallelism) {
-    Recipes<T> self = this;
-    return new Recipes<T>() {
+  default Parallel<T> parallelism(int parallelism) {
+    Parallel<T> self = this;
+    return new Parallel<T>() {
       @Override
       public Stream<Recipe<T>> stream() {
         return self.stream();
@@ -61,7 +62,7 @@ public interface Recipes<T> extends Streamable<Recipe<T>> {
 
   default Recipe<ImmutableList<T>> inOrder() {
     ImmutableList<Recipe<T>> recipeList = stream().collect(toImmutableList());
-    return Recipes.of(Indexed.from(recipeList::stream))
+    return Parallel.of(Indexed.from(recipeList::stream))
         .accumulate(
             () -> (T[]) new Object[recipeList.size()],
             (array, indexedValue) -> {
@@ -115,9 +116,9 @@ public interface Recipes<T> extends Streamable<Recipe<T>> {
                 return onValue.receive(zero);
               }
               return startIo(
-                  (executor, whenDone) ->
+                  (computation, whenDone) ->
                       new Accumulation<>(
-                              executor,
+                              computation,
                               whenDone,
                               inputs,
                               parallelism(),
@@ -164,7 +165,7 @@ class Indexed<T> {
 }
 
 class Accumulation<T, U> {
-  private final Executor executor;
+  private final ScheduledExecutorService scheduler;
   final Consumer<Recipe<U>> parent;
   final Iterator<Recipe<T>> inputs;
   int parallelism;
@@ -174,17 +175,17 @@ class Accumulation<T, U> {
   U accu;
   Throwable failure = null;
   boolean terminated = false;
-  Set<Computation<T>> running = new HashSet<>();
+  Set<Context.CancellableContext> running = new HashSet<>();
 
   public Accumulation(
-      Executor executor,
+      ScheduledExecutorService scheduler,
       Consumer<Recipe<U>> parent,
       Iterator<Recipe<T>> inputs,
       int parallelism,
       U zero,
       ThrowingBiFunction<U, T, U> accumulator,
       ThrowingPredicate<U> terminator) {
-    this.executor = executor;
+    this.scheduler = scheduler;
     this.parent = parent;
     this.inputs = inputs;
     this.parallelism = parallelism;
@@ -193,11 +194,11 @@ class Accumulation<T, U> {
     this.accu = zero;
   }
 
-  Executor.Cancellable start() {
+  Runnable start() {
     startOne();
     // Our child computations are cancelled via forking off the parent context, so we don't need to
     // implement propagation.
-    return () -> {};
+    return null;
   }
 
   private synchronized void startOne() {
@@ -208,7 +209,7 @@ class Accumulation<T, U> {
     }
   }
 
-  public synchronized void onInputValue(Computation<T> child, T inputValue) {
+  public synchronized void onInputValue(Context.CancellableContext child, T inputValue) {
     running.remove(child);
     if (terminated || failure != null) {
       return;
@@ -230,7 +231,7 @@ class Accumulation<T, U> {
     if (notify) queueNotification();
   }
 
-  public synchronized void onInputFailure(Computation<T> child, Throwable failure) {
+  public synchronized void onInputFailure(Context.CancellableContext child, Throwable failure) {
     running.remove(child);
     if (terminated || this.failure != null) {
       return;
@@ -246,14 +247,12 @@ class Accumulation<T, U> {
 
   void start(Recipe<T> recipe) {
     Context current = Context.current();
-    Computation<T> child = new Computation<>(executor);
-    running.add(child);
-    executor.execute(
-        () ->
-            child.start(
-                recipe.impl,
-                value -> current.run(() -> onInputValue(child, value)),
-                failure -> current.run(() -> onInputFailure(child, failure))));
+    Runtime.start(
+        recipe.impl,
+        running::add,
+        (context, value) -> current.run(() -> onInputValue(context, value)),
+        (context, failure) -> current.run(() -> onInputFailure(context, failure)),
+        scheduler);
   }
 
   private void cancel() {

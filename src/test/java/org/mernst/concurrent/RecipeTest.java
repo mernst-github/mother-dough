@@ -3,6 +3,7 @@ package org.mernst.concurrent;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import io.grpc.Context;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import org.junit.Test;
@@ -11,7 +12,9 @@ import org.junit.runners.JUnit4;
 
 import java.time.Duration;
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
@@ -154,7 +157,7 @@ public class RecipeTest {
     assertEquals(
         Stream.of(2, 5, 7).map(Duration::ofSeconds).collect(toImmutableList()),
         eval(
-            Recipes.of(
+            Parallel.of(
                     () ->
                         java.util.stream.Stream.of(7, 2, 5)
                             .map(Duration::ofSeconds)
@@ -168,7 +171,7 @@ public class RecipeTest {
     assertEquals(
         Stream.of(2, 7, 7).map(Duration::ofSeconds).collect(toImmutableList()),
         eval(
-            Recipes.of(
+            Parallel.of(
                     () ->
                         java.util.stream.Stream.of(7, 2, 5)
                             .map(Duration::ofSeconds)
@@ -183,7 +186,7 @@ public class RecipeTest {
     assertEquals(
         Stream.of(7, 9, 14).map(Duration::ofSeconds).collect(toImmutableList()),
         eval(
-            Recipes.of(() -> Stream.of(7, 2, 5).map(Duration::ofSeconds).map(elapsed::after))
+            Parallel.of(() -> Stream.of(7, 2, 5).map(Duration::ofSeconds).map(elapsed::after))
                 .parallelism(1)
                 .accumulate(toImmutableList())));
   }
@@ -191,7 +194,7 @@ public class RecipeTest {
   @Test
   public void collecting_terminate() {
     Recipe<Optional<Integer>> r =
-        Recipes.of(() -> IntStream.iterate(0, i -> i + 1).mapToObj(i -> Recipe.from(() -> i)))
+        Parallel.of(() -> IntStream.iterate(0, i -> i + 1).mapToObj(i -> Recipe.from(() -> i)))
             .parallelism(100)
             .firstMatching(i -> i == 10);
     assertEquals(10, eval(r).get().longValue());
@@ -202,14 +205,14 @@ public class RecipeTest {
     assertEquals(
         ImmutableList.of("one", "two", "three"),
         eval(
-            Recipes.of(
+            Parallel.of(
                     Recipe.to("one"),
                     Recipe.to("two").after(Duration.ofSeconds(1)),
                     Recipe.to("three"))
                 .inOrder()));
   }
 
-  class Slot {
+  static class Slot {
     boolean set = false;
 
     <T, U> U set(T value) {
@@ -224,31 +227,19 @@ public class RecipeTest {
 
   @Test
   public void cancel() {
-    Slot result = new Slot();
-    Slot failure = new Slot();
-    Computation<Object> c = new Computation<>(pool);
-    pool.execute(
-        () ->
-            c.start(
-                Recipe.from(
-                        () -> {
-                          c.cancel(null);
-                          return null;
-                        })
-                    .flatMap(
-                        o ->
-                            Recipe.io(
-                                (executor, whenDone) ->
-                                    executor.scheduleAfter(
-                                        Duration.ZERO, () -> whenDone.accept(Recipe.to(o)))))
-                    .impl,
-                result::set,
-                failure::set));
-
+    // Can't cancel current context so we need this clutch.
+    AtomicReference<Context.CancellableContext> context = new AtomicReference<>();
+    AtomicReference<Throwable> failure = new AtomicReference<>();
+    Recipe<Void> recipe =
+        Recipe.io(
+            (c, whenDone) -> {
+              context.get().cancel(new CancellationException());
+              whenDone.accept(Recipe.to(null));
+              return null;
+            });
+    Runtime.start(recipe.impl, context::set, (ctx, value) -> {}, (ctx, f) -> failure.set(f), pool);
     pool.run();
-    assertNull(c.context.get());
-    assertFalse(result.set);
-    assertTrue(failure.set);
+    assertSame(CancellationException.class, failure.get().getClass());
   }
 
   @Test

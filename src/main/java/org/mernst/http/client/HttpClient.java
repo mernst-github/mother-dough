@@ -10,8 +10,8 @@ import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import okhttp3.*;
 import okhttp3.internal.Version;
-import org.mernst.concurrent.Executor;
 import org.mernst.concurrent.Recipe;
+import org.mernst.functional.ThrowingFunction;
 import org.mernst.functional.ThrowingSupplier;
 import org.mernst.metrics.Metric;
 
@@ -23,7 +23,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Consumer;
 import java.util.function.Function;
 
 public class HttpClient {
@@ -37,12 +36,12 @@ public class HttpClient {
   }
 
   public Recipe<ResponseBody> get(String url) {
-    return request(() -> new Request.Builder().url(url).build())
-        .map(HttpClient::okBody)
-        .flatMap(
-            body ->
-                Recipe.from(() -> ResponseBody.create(body.byteString(), body.contentType()))
-                    .afterwards(body::close));
+    return request(
+        () -> new Request.Builder().url(url).build(),
+        response -> {
+          ResponseBody body = okBody(response);
+          return ResponseBody.create(body.byteString(), body.contentType());
+        });
   }
 
   public <T> Recipe<T> get(AbstractGoogleClientRequest<T> request) throws IOException {
@@ -54,24 +53,54 @@ public class HttpClient {
                     .url(request.buildHttpRequestUrl().toString())
                     .method(httpRequest.getRequestMethod(), body(httpRequest.getContent()))
                     .headers(headers(httpRequest.getHeaders()))
-                    .build())
-        .map(HttpClient::okBody)
-        .map(
-            body ->
-                httpRequest
-                    .getParser()
-                    .parseAndClose(
-                        body.byteStream(),
-                        body.contentType().charset(),
-                        request.getResponseClass()))
+                    .build(),
+            response -> {
+              ResponseBody body = okBody(response);
+              return httpRequest
+                  .getParser()
+                  .parseAndClose(
+                      body.byteStream(), body.contentType().charset(), request.getResponseClass());
+            })
         .afterwards(
             success -> recordLatency(start, request, Status.Code.OK),
             failure -> recordLatency(start, request, Status.fromThrowable(failure).getCode()));
   }
 
-  private Recipe<Response> request(ThrowingSupplier<Request> request) {
+  private <T> Recipe<T> request(
+      ThrowingSupplier<Request> request, ThrowingFunction<Response, T> parser) {
     return Recipe.from(request)
-        .flatMap(r -> Recipe.io((executor, whenDone) -> new OkCall(call(r), whenDone).start()));
+        .flatMap(
+            r ->
+                Recipe.io(
+                    (scheduler, whenDone) -> {
+                      Call call = call(r);
+                      call.enqueue(
+                          new Callback() {
+                            @Override
+                            public void onFailure(Call call, IOException e) {
+                              whenDone.accept(Recipe.failed(e));
+                            }
+
+                            @Override
+                            public void onResponse(Call call, Response response)
+                                throws IOException {
+                              // Cannot parse via Recipe.map because of possible cancellation and
+                              // the requirement to close response. The alternative with
+                              // attaching/detaching listeners is too nasty.
+                              T result;
+                              try {
+                                result = parser.apply(response);
+                              } catch (Throwable throwable) {
+                                whenDone.accept(Recipe.failed(throwable));
+                                return;
+                              } finally {
+                                response.close();
+                              }
+                              whenDone.accept(Recipe.to(result));
+                            }
+                          });
+                      return call::cancel;
+                    }));
   }
 
   private Call call(Request r) {
@@ -144,41 +173,5 @@ public class HttpClient {
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
     content.writeTo(baos);
     return RequestBody.create(baos.toByteArray(), MediaType.get(content.getType()));
-  }
-
-  private static class OkCall implements Callback {
-    private volatile boolean cancelled = false;
-    private final Call call;
-    private final Consumer<Recipe<Response>> whenDone;
-
-    public OkCall(Call call, Consumer<Recipe<Response>> whenDone) {
-      this.call = call;
-      this.whenDone = whenDone;
-    }
-
-    @Override
-    public void onFailure(Call call, IOException e) {
-      if (cancelled) {
-        return;
-      }
-      whenDone.accept(Recipe.failed(e));
-    }
-
-    @Override
-    public void onResponse(Call call, Response response) {
-      if (cancelled) {
-        response.close();
-        return;
-      }
-      whenDone.accept(Recipe.to(response));
-    }
-
-    public Executor.Cancellable start() {
-      call.enqueue(this);
-      return () -> {
-        call.cancel();
-        cancelled = true;
-      };
-    }
   }
 }

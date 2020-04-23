@@ -5,6 +5,7 @@ import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
+import io.grpc.Context;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import org.mernst.collect.Streamable;
@@ -15,12 +16,16 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Optional;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
 import static org.mernst.concurrent.AsyncSupplier.State.pull;
 import static org.mernst.concurrent.AsyncSupplier.State.startIo;
+import static org.mernst.concurrent.Runtime.start;
 
 public final class Recipe<T> {
   final AsyncSupplier<T> impl;
@@ -39,7 +44,7 @@ public final class Recipe<T> {
 
   public static <T> Recipe<T> fromFuture(ThrowingSupplier<? extends ListenableFuture<T>> f) {
     return io(
-        (executor, whenDone) -> {
+        (scheduler, whenDone) -> {
           ListenableFuture<T> future = f.get();
           Futures.addCallback(
               future,
@@ -54,7 +59,7 @@ public final class Recipe<T> {
                   whenDone.accept(failed(failure));
                 }
               },
-              executor);
+              scheduler);
           return () -> future.cancel(false);
         });
   }
@@ -71,21 +76,22 @@ public final class Recipe<T> {
     return to(s).map(ThrowingSupplier::get);
   }
 
-  public ListenableFuture<T> evaluate(Executor e) {
+  public ListenableFuture<T> evaluate(ScheduledExecutorService scheduler) {
     SettableFuture<T> result = SettableFuture.create();
-    e.execute(
+    Context.CancellableContext context =
+        start(
+            impl,
+            ctx -> {},
+            (ctx, value) -> result.set(value),
+            (ctx, failure) -> result.setException(failure),
+            scheduler);
+    result.addListener(
         () -> {
-          Computation<T> c = new Computation<T>(e);
-          result.addListener(
-              () -> {
-                if (result.isCancelled()) {
-                  c.cancel(null);
-                }
-              },
-              e);
-
-          c.start(impl, result::set, result::setException);
-        });
+          if (result.isCancelled()) {
+            context.cancel(null);
+          }
+        },
+        scheduler);
     return result;
   }
 
@@ -183,7 +189,13 @@ public final class Recipe<T> {
   }
 
   public Recipe<T> after(Duration delay) {
-    return io((executor, whenDone) -> executor.scheduleAfter(delay, () -> whenDone.accept(this)));
+    return io(
+        (scheduler, whenDone) -> {
+          ScheduledFuture<?> f =
+              scheduler.schedule(
+                  () -> whenDone.accept(this), delay.toNanos(), TimeUnit.NANOSECONDS);
+          return () -> f.cancel(false);
+        });
   }
 
   public <F extends Throwable> Recipe<T> retryingOn(
@@ -204,13 +216,16 @@ public final class Recipe<T> {
   public Recipe<T> withDeadline(Duration deadline) {
     // (Ab?)using io to start "this" in a new context w/ deadline.
     return Recipe.<T>io(
-            (executor, whenDone) ->
-                new Computation<T>(executor)
-                    .start(
-                        impl,
-                        t -> whenDone.accept(to(t)),
-                        t -> whenDone.accept(failed(t)),
-                        deadline))
+            (scheduler, whenDone) -> {
+              start(
+                  impl,
+                  ctx -> {},
+                  (ctx, t) -> whenDone.accept(to(t)),
+                  (ctx, t) -> whenDone.accept(failed(t)),
+                  deadline,
+                  scheduler);
+              return () -> {};
+            })
         .flatMapFailure(
             TimeoutException.class,
             t ->
@@ -253,7 +268,7 @@ public final class Recipe<T> {
     // Don't let one failure fail the entire hedged call.
     Recipe<ResultOrFailure<T>> catching =
         this.map(ResultOrFailure::result).mapFailure(ResultOrFailure::failure);
-    return Recipes.of(() -> Stream.of(catching, catching.after(delay)))
+    return Parallel.of(() -> Stream.of(catching, catching.after(delay)))
         .<ResultOrFailure<T>, T>accumulate(
             ResultOrFailure::new,
             (left, right) -> right,
@@ -273,7 +288,7 @@ public final class Recipe<T> {
   }
 
   public static Recipe<Results> from(Recipe<?>... recipes) {
-    return Recipes.of(() -> Arrays.stream(recipes).map(r -> r.map(o -> (Object) o)))
+    return Parallel.of(() -> Arrays.stream(recipes).map(r -> r.map(o -> (Object) o)))
         .inOrder()
         .map(
             list -> {
@@ -286,11 +301,13 @@ public final class Recipe<T> {
   }
 
   /**
-   * IO is a multi-way handshake. We first call #start, which is allowed to fail or returns a
-   * Cancellable. It receives a whenDone callback which it must call with a replacement recipe which
-   * will continue computation, unless cancelled in which case whenDone doesn't need to be called.
+   * An IO operation suspends the recipe evaluation in favor of its own and eventually supplies a
+   * replacement Recipe. It *can* use the provided scheduler if necessary and it *can* return a
+   * cancellation callback if it doesn't listen to cancellation of the surrounding Context, in this
+   * case the framework will attach the callback as context listener for the lifetime of the IO op.
    */
   public interface IO<T> {
-    Executor.Cancellable start(Executor executor, Consumer<Recipe<T>> whenDone) throws Throwable;
+    Runnable start(ScheduledExecutorService scheduler, Consumer<Recipe<T>> whenDone)
+        throws Throwable;
   }
 }

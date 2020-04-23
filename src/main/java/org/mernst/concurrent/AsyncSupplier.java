@@ -21,11 +21,11 @@ interface AsyncSupplier<T> {
      */
     static <T> State pull(
         AsyncSupplier<T> supplier, Receiver<T> onValue, Receiver<Throwable> onError) {
-      return new AutoValue_Computation_Pull<>(supplier, onValue, onError);
+      return new AutoValue_Runtime_Pull<>(supplier, onValue, onError);
     }
 
     static <T> State startIo(Recipe.IO<T> io, Receiver<T> onValue, Receiver<Throwable> onError) {
-      return new AutoValue_Computation_StartIo<>(io, onValue, onError);
+      return new AutoValue_Runtime_StartIo<>(io, onValue, onError);
     }
   }
 }

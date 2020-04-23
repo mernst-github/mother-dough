@@ -8,6 +8,7 @@ import org.mernst.functional.ThrowingRunnable;
 import org.mernst.functional.ThrowingSupplier;
 
 import java.util.Iterator;
+import java.util.concurrent.ScheduledExecutorService;
 
 /** A better api for a Recipe&lt;Void&gt;. */
 public final class Plan {
@@ -19,8 +20,8 @@ public final class Plan {
     this.impl = impl;
   }
 
-  public ListenableFuture<Void> start(Executor e) {
-    return asRecipe().evaluate(e);
+  public ListenableFuture<Void> start(ScheduledExecutorService scheduler) {
+    return asRecipe().evaluate(scheduler);
   }
 
   public static Plan from(Recipe<Void> recipe) {
@@ -96,5 +97,9 @@ public final class Plan {
 
   public Plan exceptThen(ThrowingFunction<Throwable, Plan> handler) {
     return exceptThen(Throwable.class, handler);
+  }
+
+  public Plan afterwards(ThrowingRunnable onSuccess, ThrowingConsumer<Throwable> onError) {
+    return from(asRecipe().afterwards(aVoid -> onSuccess.run(), onError));
   }
 }

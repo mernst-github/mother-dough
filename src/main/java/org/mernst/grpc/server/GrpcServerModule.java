@@ -9,9 +9,9 @@ import com.google.inject.multibindings.ProvidesIntoSet;
 import io.grpc.BindableService;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
-import org.mernst.concurrent.Executor;
 
 import java.util.Set;
+import java.util.concurrent.ScheduledExecutorService;
 
 import static org.mernst.grpc.server.GrpcServiceModule.serviceBinder;
 
@@ -36,8 +36,8 @@ public class GrpcServerModule extends AbstractModule {
   }
 
   @ProvidesIntoSet
-  Service serverStarter(Executor executor, Set<BindableService> services) {
-    serverBuilder.executor(executor);
+  Service serverStarter(ScheduledExecutorService scheduledExecutorService, Set<BindableService> services) {
+    serverBuilder.executor(scheduledExecutorService);
     services.forEach(serverBuilder::addService);
     Server server = serverBuilder.build();
     return new AbstractIdleService() {

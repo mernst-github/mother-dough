@@ -3,33 +3,36 @@ package org.mernst.http.server;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.AbstractIdleService;
-import com.google.common.util.concurrent.FutureCallback;
-import com.google.common.util.concurrent.Futures;
 import com.google.inject.Provider;
 import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
-import org.mernst.concurrent.Executor;
 import org.mernst.concurrent.Plan;
 import org.mernst.concurrent.Recipe;
 import org.mernst.context.ScopeContext;
 
+import javax.inject.Inject;
 import java.util.Map;
+import java.util.concurrent.ScheduledExecutorService;
 
 class HttpService extends AbstractIdleService {
   private final HttpServer server;
-  private final Executor executor;
+  private final ScheduledExecutorService scheduler;
   private final ImmutableMap<String, Provider<Action>> actions;
 
-  HttpService(HttpServer server, Executor executorService, Map<String, Provider<Action>> actions) {
+  @Inject
+  HttpService(
+      HttpServer server,
+      ScheduledExecutorService scheduler,
+      Map<String, Provider<Action>> actions) {
     this.server = server;
-    this.executor = executorService;
+    this.scheduler = scheduler;
     this.actions = ImmutableMap.copyOf(actions);
   }
 
   @Override
   protected void startUp() {
-    server.setExecutor(executor);
+    server.setExecutor(scheduler);
     actions.forEach(
         (path, boundAction) -> {
           int noSlash = path.length();
@@ -69,23 +72,17 @@ class HttpService extends AbstractIdleService {
   }
 
   private void execute(Action action) {
-    Futures.addCallback(
-        Recipe.to(action)
-            .flatMap(Action::execute)
-            .mapFailure(HttpResult::of)
-            .consume(this::render)
-            .start(executor),
-        new FutureCallback<Void>() {
-          @Override
-          public void onSuccess(Void result) {}
-
-          @Override
-          public void onFailure(Throwable t) {
-            Thread thread = Thread.currentThread();
-            thread.getUncaughtExceptionHandler().uncaughtException(thread, t);
-          }
-        },
-        Runnable::run);
+    Recipe.to(action)
+        .flatMap(Action::execute)
+        .mapFailure(HttpResult::of)
+        .consume(this::render)
+        .afterwards(
+            () -> {},
+            t -> {
+              Thread thread = Thread.currentThread();
+              thread.getUncaughtExceptionHandler().uncaughtException(thread, t);
+            })
+        .start(scheduler);
   }
 
   private Plan render(HttpResult result) {
