@@ -23,18 +23,18 @@ import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
-import static org.mernst.concurrent.AsyncSupplier.State.pull;
-import static org.mernst.concurrent.AsyncSupplier.State.startIo;
+import static org.mernst.concurrent.Runtime.State.pull;
+import static org.mernst.concurrent.Runtime.State.startIo;
 import static org.mernst.concurrent.Runtime.start;
 
 public final class Recipe<T> {
-  final AsyncSupplier<T> impl;
+  final Runtime.AsyncSupplier<T> impl;
 
-  Recipe(AsyncSupplier<T> impl) {
+  Recipe(Runtime.AsyncSupplier<T> impl) {
     this.impl = impl;
   }
 
-  static <T> Recipe<T> wrap(AsyncSupplier<T> impl) {
+  static <T> Recipe<T> wrap(Runtime.AsyncSupplier<T> impl) {
     return new Recipe<>(impl);
   }
 
@@ -74,25 +74,6 @@ public final class Recipe<T> {
 
   public static <T> Recipe<T> from(ThrowingSupplier<T> s) {
     return to(s).map(ThrowingSupplier::get);
-  }
-
-  public ListenableFuture<T> evaluate(ScheduledExecutorService scheduler) {
-    SettableFuture<T> result = SettableFuture.create();
-    Context.CancellableContext context =
-        start(
-            impl,
-            ctx -> {},
-            (ctx, value) -> result.set(value),
-            (ctx, failure) -> result.setException(failure),
-            scheduler);
-    result.addListener(
-        () -> {
-          if (result.isCancelled()) {
-            context.cancel(null);
-          }
-        },
-        scheduler);
-    return result;
   }
 
   public <U> Recipe<U> map(ThrowingFunction<T, U> mapping) {
@@ -286,7 +267,12 @@ public final class Recipe<T> {
       return (T) values.get(key);
     }
   }
-
+  /**
+   * An IO operation suspends the recipe evaluation in favor of its own and eventually supplies a
+   * replacement Recipe. It *can* use the provided scheduler if necessary and it *can* return a
+   * cancellation callback if it doesn't listen to cancellation of the surrounding Context, in this
+   * case the framework will attach the callback as context listener for the lifetime of the IO op.
+   */
   public static Recipe<Results> from(Recipe<?>... recipes) {
     return Parallel.of(() -> Arrays.stream(recipes).map(r -> r.map(o -> (Object) o)))
         .inOrder()
@@ -300,14 +286,28 @@ public final class Recipe<T> {
             });
   }
 
-  /**
-   * An IO operation suspends the recipe evaluation in favor of its own and eventually supplies a
-   * replacement Recipe. It *can* use the provided scheduler if necessary and it *can* return a
-   * cancellation callback if it doesn't listen to cancellation of the surrounding Context, in this
-   * case the framework will attach the callback as context listener for the lifetime of the IO op.
-   */
   public interface IO<T> {
+
     Runnable start(ScheduledExecutorService scheduler, Consumer<Recipe<T>> whenDone)
         throws Throwable;
+  }
+
+  public ListenableFuture<T> evaluate(ScheduledExecutorService scheduler) {
+    SettableFuture<T> result = SettableFuture.create();
+    Context.CancellableContext context =
+        start(
+            impl,
+            ctx -> {},
+            (ctx, value) -> result.set(value),
+            (ctx, failure) -> result.setException(failure),
+            scheduler);
+    result.addListener(
+        () -> {
+          if (result.isCancelled()) {
+            context.cancel(null);
+          }
+        },
+        scheduler);
+    return result;
   }
 }

@@ -15,25 +15,56 @@ import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import static org.mernst.concurrent.AsyncSupplier.State.pull;
+import static org.mernst.concurrent.Runtime.State.pull;
 
 /**
  * The state machine of an ongoing evaluation which would be fairly simple except for IO and
  * cancellation.
  */
 class Runtime {
-  @AutoValue
-  abstract static class Pull<T> implements AsyncSupplier.State {
-    abstract AsyncSupplier<T> supplier();
 
-    abstract AsyncSupplier.Receiver<T> onValue();
+  /** Internal implementation interface of a Recipe. */
+  interface AsyncSupplier<T> {
+    /** Returns the state that will eventually push a result to either receiver. */
+    State eval(Receiver<T> onValue, Receiver<Throwable> onFailure);
+  }
 
-    abstract AsyncSupplier.Receiver<Throwable> onFailure();
+  /** Like an async consumer, resulting state determines how we continue. */
+  public interface Receiver<T> {
+    State receive(T t);
+  }
+
+  /**
+   * A state of a recipe evaluation. We may either pull from a/another recipe, or push a result to a
+   * receiver, or suspend the evaluation because of IO, in which case IO completion will restart it.
+   */
+  public interface State {
+    /**
+     * Starts evaluating the given supplier and will eventually call onValue or onError, unless
+     * cancelled.
+     */
+    static <T> State pull(
+        AsyncSupplier<T> supplier, Receiver<T> onValue, Receiver<Throwable> onError) {
+      return new AutoValue_Runtime_Pull<>(supplier, onValue, onError);
+    }
+
+    static <T> State startIo(Recipe.IO<T> io, Receiver<T> onValue, Receiver<Throwable> onError) {
+      return new AutoValue_Runtime_StartIo<>(io, onValue, onError);
+    }
   }
 
   @AutoValue
-  abstract static class Push<T> implements AsyncSupplier.State {
-    abstract AsyncSupplier.Receiver<T> receiver();
+  abstract static class Pull<T> implements State {
+    abstract AsyncSupplier<T> supplier();
+
+    abstract Receiver<T> onValue();
+
+    abstract Receiver<Throwable> onFailure();
+  }
+
+  @AutoValue
+  abstract static class Push<T> implements State {
+    abstract Receiver<T> receiver();
 
     // TODO: find out which "official" Nullable to get from where.
     @Retention(RetentionPolicy.RUNTIME)
@@ -44,12 +75,12 @@ class Runtime {
   }
 
   @AutoValue
-  abstract static class StartIo<T> implements AsyncSupplier.State {
+  abstract static class StartIo<T> implements State {
     abstract Recipe.IO<T> io();
 
-    abstract AsyncSupplier.Receiver<T> onSuccess();
+    abstract Receiver<T> onSuccess();
 
-    abstract AsyncSupplier.Receiver<Throwable> onError();
+    abstract Receiver<Throwable> onError();
   }
 
   static <T> Context.CancellableContext start(
@@ -111,7 +142,7 @@ class Runtime {
     return context;
   }
 
-  static void run(AsyncSupplier.State state, ScheduledExecutorService scheduler) {
+  static void run(State state, ScheduledExecutorService scheduler) {
     while (state != null && !Context.current().isCancelled()) {
       if (state instanceof Pull) {
         state = checkNotNull(transitionFrom((Pull<?>) state));
@@ -123,16 +154,15 @@ class Runtime {
     }
   }
 
-  static <T> AsyncSupplier.State transitionFrom(Pull<T> state) {
+  static <T> State transitionFrom(Pull<T> state) {
     return state.supplier().eval(t -> push(state.onValue(), t), t -> push(state.onFailure(), t));
   }
 
-  static <T> AsyncSupplier.State transitionFrom(Push<T> state) {
+  static <T> State transitionFrom(Push<T> state) {
     return state.receiver().receive(state.value());
   }
 
-  static <T> AsyncSupplier.State transitionFrom(
-      StartIo<T> state, ScheduledExecutorService scheduler) {
+  static <T> State transitionFrom(StartIo<T> state, ScheduledExecutorService scheduler) {
     // We need one level of indirection to maintain listener identity.
     AtomicReference<Runnable> ioOp = new AtomicReference<>();
     Context.CancellationListener listener =
@@ -168,7 +198,7 @@ class Runtime {
   }
 
   /** Calls onValue and continues with its result. */
-  private static <T> AsyncSupplier.State push(AsyncSupplier.Receiver<T> onValue, T value) {
+  private static <T> State push(Receiver<T> onValue, T value) {
     return new AutoValue_Runtime_Push<>(onValue, value);
   }
 

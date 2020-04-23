@@ -16,7 +16,7 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
-import static org.mernst.concurrent.AsyncSupplier.State.startIo;
+import static org.mernst.concurrent.Runtime.State.startIo;
 
 /** Accumulation support for multiple recipes. */
 public interface Parallel<T> extends Streamable<Recipe<T>> {

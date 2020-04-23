@@ -14,9 +14,9 @@ import java.util.concurrent.ScheduledExecutorService;
 public final class Plan {
   private static final Plan NONE = new Plan((onValue, onFailure) -> onValue.receive(null));
 
-  final AsyncSupplier<Void> impl;
+  final Runtime.AsyncSupplier<Void> impl;
 
-  private Plan(AsyncSupplier<Void> impl) {
+  private Plan(Runtime.AsyncSupplier<Void> impl) {
     this.impl = impl;
   }
 
@@ -101,5 +101,9 @@ public final class Plan {
 
   public Plan afterwards(ThrowingRunnable onSuccess, ThrowingConsumer<Throwable> onError) {
     return from(asRecipe().afterwards(aVoid -> onSuccess.run(), onError));
+  }
+
+  public Plan afterwards(ThrowingRunnable body) {
+    return afterwards(body, failure -> body.run());
   }
 }
