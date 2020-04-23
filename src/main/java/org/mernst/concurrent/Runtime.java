@@ -164,9 +164,9 @@ class Runtime {
 
   static <T> State transitionFrom(StartIo<T> state, ScheduledExecutorService scheduler) {
     // We need one level of indirection to maintain listener identity.
-    AtomicReference<Runnable> ioOp = new AtomicReference<>();
+    AtomicReference<Recipe.IO.CancellationCallback> ioOp = new AtomicReference<>();
     Context.CancellationListener listener =
-        context -> Optional.ofNullable(ioOp.get()).ifPresent(Runnable::run);
+        context -> Optional.ofNullable(ioOp.get()).ifPresent(Recipe.IO.CancellationCallback::run);
     Context current = Context.current();
     current.addListener(listener, scheduler);
     try {

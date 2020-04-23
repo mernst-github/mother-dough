@@ -194,7 +194,7 @@ class Accumulation<T, U> {
     this.accu = zero;
   }
 
-  Runnable start() {
+  Recipe.IO.CancellationCallback start() {
     startOne();
     // Our child computations are cancelled via forking off the parent context, so we don't need to
     // implement propagation.

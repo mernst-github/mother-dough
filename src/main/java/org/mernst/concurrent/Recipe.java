@@ -267,12 +267,7 @@ public final class Recipe<T> {
       return (T) values.get(key);
     }
   }
-  /**
-   * An IO operation suspends the recipe evaluation in favor of its own and eventually supplies a
-   * replacement Recipe. It *can* use the provided scheduler if necessary and it *can* return a
-   * cancellation callback if it doesn't listen to cancellation of the surrounding Context, in this
-   * case the framework will attach the callback as context listener for the lifetime of the IO op.
-   */
+
   public static Recipe<Results> from(Recipe<?>... recipes) {
     return Parallel.of(() -> Arrays.stream(recipes).map(r -> r.map(o -> (Object) o)))
         .inOrder()
@@ -286,9 +281,19 @@ public final class Recipe<T> {
             });
   }
 
+  /**
+   * An IO operation suspends the recipe evaluation in favor of its own and eventually supplies a
+   * replacement Recipe. It *can* use the provided scheduler if necessary and it *can* return a
+   * cancellation callback if it doesn't listen to cancellation of the surrounding Context, in this
+   * case the framework will attach the callback as context listener for the lifetime of the IO op.
+   */
   public interface IO<T> {
+    /** the evaluation has been cancelled, stop the io operation. */
+    interface CancellationCallback {
+      void run();
+    }
 
-    Runnable start(ScheduledExecutorService scheduler, Consumer<Recipe<T>> whenDone)
+    CancellationCallback start(ScheduledExecutorService scheduler, Consumer<Recipe<T>> whenDone)
         throws Throwable;
   }
 
