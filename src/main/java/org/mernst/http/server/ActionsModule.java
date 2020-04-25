@@ -3,10 +3,7 @@ package org.mernst.http.server;
 import com.google.auto.value.AutoAnnotation;
 import com.google.common.base.Converter;
 import com.google.common.base.Enums;
-import com.google.common.collect.Streams;
-import com.google.common.hash.Hashing;
-import com.google.common.hash.HashingOutputStream;
-import com.google.common.io.Resources;
+import com.google.common.collect.MoreCollectors;
 import com.google.common.primitives.Doubles;
 import com.google.common.primitives.Floats;
 import com.google.common.primitives.Ints;
@@ -22,65 +19,44 @@ import com.sun.net.httpserver.HttpExchange;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import okhttp3.HttpUrl;
-import org.mernst.concurrent.Plan;
+import org.mernst.collect.Streamable;
 import org.mernst.concurrent.Recipe;
 
 import javax.inject.Provider;
-import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.URL;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 public abstract class ActionsModule extends BaseModule {
+  private final String basePath;
 
-  protected LinkedBindingBuilder<Action> bindAction(String path) {
-    return actionBinder(binder()).addBinding(path);
+  public ActionsModule(String basePath) {
+    this.basePath = basePath;
+  }
+
+  private String resolve(String relativePath) {
+    return basePath.length() == 1
+        ? relativePath
+        : relativePath.length() == 1 ? basePath : basePath + relativePath;
+  }
+
+  protected LinkedBindingBuilder<Action> bindAction(String relativePath) {
+    return actionBinder(binder()).addBinding(resolve(relativePath));
   }
 
   protected void redirectPermanently(String path, String destination) {
     bindAction(path)
-        .toInstance(() -> Recipe.from(() -> HttpResult.permanentRedirectTo(destination)));
+        .toInstance(() -> Recipe.from(() -> HttpResult.permanentRedirectTo(resolve(destination))));
   }
 
   protected void redirectTemporarily(String path, String destination) {
     bindAction(path)
-        .toInstance(() -> Recipe.from(() -> HttpResult.temporaryRedirectTo(destination)));
+        .toInstance(() -> Recipe.from(() -> HttpResult.temporaryRedirectTo(resolve(destination))));
   }
 
   protected void defaultDocument(String dir, String documentPath) {
     redirectTemporarily(dir, dir + documentPath);
-  }
-
-  protected void bindResource(
-      String basePath, String resourceDirectory, String relativePath, String contentType) {
-    bindResource(basePath, getClass(), resourceDirectory, relativePath, contentType);
-  }
-
-  protected void bindResource(
-      String basePath,
-      Class<?> baseClass,
-      String resourceDirectory,
-      String relativePath,
-      String contentType) {
-    Provider<HttpResponder> responder = getProvider(HttpResponder.class);
-    URL resource = Resources.getResource(baseClass, resourceDirectory.substring(1) + relativePath);
-
-    HashingOutputStream hasher =
-        new HashingOutputStream(Hashing.murmur3_128(0), OutputStream.nullOutputStream());
-    try {
-      Resources.copy(resource, hasher);
-    } catch (IOException io) {
-      throw new IllegalArgumentException(resource.toString(), io);
-    }
-
-    String eTag = String.format("\"%s\"", hasher.hash());
-    HttpResult.Body body =
-        HttpResult.Body.of(contentType, eTag, os -> Plan.of(() -> Resources.copy(resource, os)));
-    bindAction(basePath + relativePath)
-        .toInstance(() -> Recipe.to(responder.get().ifUnmodified(body)));
   }
 
   @Override
@@ -93,18 +69,18 @@ public abstract class ActionsModule extends BaseModule {
 }
 
 class BaseModule extends AbstractModule {
-  private Iterable<String> lazyParams(String name) {
+  private Streamable<String> lazyParams(String name) {
     Provider<HttpUrl> url = getProvider(HttpUrl.class);
-    return () -> url.get().queryParameterValues(name).iterator();
+    return () -> url.get().queryParameterValues(name).stream();
   }
 
-  private <T> Provider<Iterable<T>> parameters(String name, Class<T> type) {
-    Iterable<String> parameters = lazyParams(name);
-    Provider<Converter<String, T>> converterProvider = getProvider(converterTo(type));
+  private <T> Provider<Streamable<T>> parameters(
+      String name, Provider<Converter<String, T>> converterProvider) {
+    Streamable<String> parameters = lazyParams(name);
     return () -> {
       Converter<String, T> converter = converterProvider.get();
       return () ->
-          Streams.stream(parameters)
+          parameters.stream()
               .map(
                   s -> {
                     try {
@@ -115,14 +91,13 @@ class BaseModule extends AbstractModule {
                               .withDescription(name + ": " + iae.getMessage())
                               .withCause(iae));
                     }
-                  })
-              .iterator();
+                  });
     };
   }
 
   private <T> Provider<Optional<T>> optionalParameter(String name, Class<T> type) {
-    Provider<Iterable<T>> parameters = parameters(name, type);
-    return () -> Streams.stream(parameters.get()).findFirst();
+    Provider<Streamable<T>> parameters = parameters(name, getProvider(converterTo(type)));
+    return () -> parameters.get().stream().collect(MoreCollectors.toOptional());
   }
 
   private <T> Provider<T> parameter(String name, Class<T> type, T defaultValue) {
@@ -131,7 +106,7 @@ class BaseModule extends AbstractModule {
   }
 
   @SuppressWarnings("unchecked")
-  protected <T> Provider<Iterable<T>> bindParameters(String name, Class<T> type) {
+  protected <T> Provider<Streamable<T>> bindParameters(String name, Class<T> type) {
     return bindParameters(name, type, name);
   }
 
@@ -145,13 +120,13 @@ class BaseModule extends AbstractModule {
   }
 
   @SuppressWarnings("unchecked")
-  protected <T> Provider<Iterable<T>> bindParameters(
+  protected <T> Provider<Streamable<T>> bindParameters(
       String name, Class<T> type, String annotationName) {
     return bindParameter(
         annotationName,
-        (TypeLiteral<Iterable<T>>)
-            TypeLiteral.get(Types.newParameterizedType(Iterable.class, type)),
-        parameters(name, type));
+        (TypeLiteral<Streamable<T>>)
+            TypeLiteral.get(Types.newParameterizedType(Streamable.class, type)),
+        parameters(name, getProvider(converterTo(type))));
   }
 
   @SuppressWarnings("unchecked")

@@ -10,6 +10,7 @@ ACTION = [
     "Param.java",
     "Path.java",
     "RequestMethod.java",
+    "ResourceModule.java",
 ]
 
 java_library(

@@ -6,8 +6,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import org.mernst.concurrent.Plan;
-import org.mernst.concurrent.Recipe;
 import org.mernst.functional.ThrowingBiConsumer;
+import org.mernst.functional.ThrowingFunction;
 
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -38,13 +38,13 @@ public class Jackson {
     return t -> w -> Plan.of(() -> serializer.accept(t, w));
   }
 
-  public static <T> Function<InputStream, Recipe<T>> fromBytes(Class<T> type) {
+  public static <T> ThrowingFunction<InputStream, T> fromBytes(Class<T> type) {
     ObjectReader objectReader = MAPPER.readerFor(type);
-    return r -> Recipe.from(() -> objectReader.readValue(FACTORY.createParser(r), type));
+    return r -> objectReader.readValue(FACTORY.createParser(r), type);
   }
 
-  public static <T> Function<Reader, Recipe<T>> fromChars(Class<T> type) {
+  public static <T> ThrowingFunction<Reader, T> fromChars(Class<T> type) {
     ObjectReader objectReader = MAPPER.readerFor(type);
-    return r -> Recipe.from(() -> objectReader.readValue(FACTORY.createParser(r), type));
+    return r -> objectReader.readValue(FACTORY.createParser(r), type);
   }
 }
