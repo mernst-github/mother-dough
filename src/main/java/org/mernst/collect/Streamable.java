@@ -8,7 +8,7 @@ import java.util.stream.Stream;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 
 /**
- * A more modern replacement for Iterable, esp lets you pass transformed streams directory without
+ * A more modern replacement for Iterable, esp lets you pass transformed streams directly without
  * .collect(toImmutableList()) or ()->....iterator().
  */
 public interface Streamable<T> {
@@ -24,7 +24,7 @@ public interface Streamable<T> {
   }
 
   /**
-   * Collects this streamable into a list for repeated streaming or early error detection.
+   * Collects this streamable into an intermediate list for repeated streaming or eager error detection.
    */
   default Streamable<T> materialized() {
     return stream().collect(toImmutableList())::stream;

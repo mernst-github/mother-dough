@@ -261,12 +261,11 @@ class Accumulation<T, U> {
         notify = running.isEmpty();
       }
     }
-    if (notify) queueNotification();
-  }
 
-  void queueNotification() {
-    cancel();
-    parent.accept((failure != null) ? Recipe.failed(failure) : Recipe.to(accu));
+    if (notify) {
+      cancel();
+      parent.accept((failure != null) ? Recipe.failed(failure) : Recipe.to(accu));
+    }
   }
 
   void start(Recipe<T> recipe) {
