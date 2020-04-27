@@ -25,7 +25,7 @@ public class HttpServiceModule extends AbstractModule {
   @Override
   protected void configure() {
     install(ContextModule.create());
-    ActionsModule.actionBinder(binder());
+    ActionModule.actionBinder(binder());
   }
 
   @Provides

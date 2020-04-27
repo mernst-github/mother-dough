@@ -28,10 +28,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-public abstract class ActionsModule extends BaseModule {
+public abstract class ActionModule extends BaseModule {
   private final String basePath;
 
-  public ActionsModule(String basePath) {
+  public ActionModule(String basePath) {
     this.basePath = basePath;
   }
 

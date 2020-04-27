@@ -186,7 +186,13 @@ public final class Recipe<T> {
         failure,
         f ->
             delayIt.hasNext() && p.test(f)
-                ? retryingOn(failure, p, () -> Streams.stream(delayIt)).after(delayIt.next())
+                ? retryingOn(failure, p, () -> Streams.stream(delayIt))
+                    .after(delayIt.next())
+                    .flatMapFailure(
+                        finalFailure -> {
+                          finalFailure.addSuppressed(f);
+                          return failed(finalFailure);
+                        })
                 : failed(f));
   }
 

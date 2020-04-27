@@ -1,5 +1,6 @@
 package org.mernst.concurrent;
 
+import com.google.auto.value.AutoValue;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Streams;
 import io.grpc.Context;
@@ -13,42 +14,48 @@ import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.stream.Collector;
 import java.util.stream.IntStream;
-import java.util.stream.Stream;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.mernst.concurrent.Runtime.State.startIo;
 
 /** Accumulation support for multiple recipes. */
-public interface Parallel<T> extends Streamable<Recipe<T>> {
-  default int parallelism() {
-    return Integer.MAX_VALUE;
-  }
+@AutoValue
+public abstract class Parallel<T> {
+  public abstract Streamable<Recipe<T>> inputs();
 
-  static <T> Parallel<T> of(Streamable<Recipe<T>> recipes) {
-    return recipes::stream;
+  public abstract int parallelism();
+
+  public abstract ThrowingPredicate<Throwable> failureFilter();
+
+  public static <T> Parallel<T> of(Streamable<Recipe<T>> inputs) {
+    return new AutoValue_Parallel<>(inputs, Integer.MAX_VALUE, f -> false);
   }
 
   @SafeVarargs
-  static <T> Parallel<T> of(Recipe<T>... recipes) {
-    return () -> Arrays.stream(recipes);
+  public static <T> Parallel<T> of(Recipe<T>... inputs) {
+    return of(() -> Arrays.stream(inputs));
   }
 
-  default Parallel<T> parallelism(int parallelism) {
-    Parallel<T> self = this;
-    return new Parallel<T>() {
-      @Override
-      public Stream<Recipe<T>> stream() {
-        return self.stream();
-      }
-
-      @Override
-      public int parallelism() {
-        return parallelism;
-      }
-    };
+  public Parallel<T> parallelism(int parallelism) {
+    return new AutoValue_Parallel<>(inputs(), parallelism, failureFilter());
   }
 
-  default Plan consumeInCompletionOrder(ThrowingConsumer<T> consumer) {
+  public Parallel<T> ignoringFailures() {
+    return new AutoValue_Parallel<>(inputs(), parallelism(), f -> true);
+  }
+
+  public Parallel<T> ignoring(Class<? extends Throwable> c) {
+    return new AutoValue_Parallel<>(inputs(), parallelism(), failureFilter().or(c::isInstance));
+  }
+
+  public <F> Parallel<T> ignoring(Class<F> c, ThrowingPredicate<F> filter) {
+    return new AutoValue_Parallel<>(
+        inputs(),
+        parallelism(),
+        failureFilter().or(o -> c.isInstance(o) && filter.test(c.cast(o))));
+  }
+
+  public Plan consumeInCompletionOrder(ThrowingConsumer<T> consumer) {
     return Plan.from(
         this.<Void, Void>accumulate(
             () -> null,
@@ -60,9 +67,10 @@ public interface Parallel<T> extends Streamable<Recipe<T>> {
             a -> a));
   }
 
-  default Recipe<ImmutableList<T>> inOrder() {
-    ImmutableList<Recipe<T>> recipeList = stream().collect(toImmutableList());
-    return Parallel.of(Indexed.from(recipeList::stream))
+  public Recipe<ImmutableList<T>> inOrder() {
+    ImmutableList<Recipe<T>> recipeList = inputs().stream().collect(toImmutableList());
+    return new AutoValue_Parallel<>(
+            Indexed.from(recipeList::stream), parallelism(), failureFilter())
         .accumulate(
             () -> (T[]) new Object[recipeList.size()],
             (array, indexedValue) -> {
@@ -73,7 +81,7 @@ public interface Parallel<T> extends Streamable<Recipe<T>> {
             ImmutableList::copyOf);
   }
 
-  default Recipe<ImmutableList<T>> inCompletionOrder() {
+  public Recipe<ImmutableList<T>> inCompletionOrder() {
     return this.<ImmutableList.Builder<T>, ImmutableList<T>>accumulate(
         ImmutableList::builder,
         ImmutableList.Builder::add,
@@ -81,11 +89,11 @@ public interface Parallel<T> extends Streamable<Recipe<T>> {
         ImmutableList.Builder::build);
   }
 
-  default <A, U> Recipe<U> accumulate(Collector<T, A, U> collector) {
+  public <A, U> Recipe<U> accumulate(Collector<T, A, U> collector) {
     return accumulate(collector, a -> false);
   }
 
-  default <A, U> Recipe<U> accumulate(
+  public <A, U> Recipe<U> accumulate(
       Collector<T, A, U> collector, ThrowingPredicate<A> terminator) {
     BiConsumer<A, T> accumulator = collector.accumulator();
     return accumulate(
@@ -98,7 +106,7 @@ public interface Parallel<T> extends Streamable<Recipe<T>> {
         collector.finisher()::apply);
   }
 
-  default <A, U> Recipe<U> accumulate(
+  public <A, U> Recipe<U> accumulate(
       ThrowingSupplier<A> supplier,
       ThrowingBiFunction<A, T, A> accumulator,
       ThrowingPredicate<A> terminator,
@@ -111,7 +119,7 @@ public interface Parallel<T> extends Streamable<Recipe<T>> {
               } catch (Throwable t) {
                 return onFailure.receive(t);
               }
-              Iterator<Recipe<T>> inputs = stream().iterator();
+              Iterator<Recipe<T>> inputs = inputs().stream().iterator();
               if (!inputs.hasNext()) {
                 return onValue.receive(zero);
               }
@@ -122,6 +130,7 @@ public interface Parallel<T> extends Streamable<Recipe<T>> {
                               whenDone,
                               inputs,
                               parallelism(),
+                              failureFilter(),
                               zero,
                               accumulator,
                               terminator)
@@ -132,12 +141,12 @@ public interface Parallel<T> extends Streamable<Recipe<T>> {
         .map(finisher);
   }
 
-  default Recipe<Optional<T>> first() {
+  public Recipe<Optional<T>> first() {
     return this.<Optional<T>, Optional<T>>accumulate(
         Optional::empty, (a, t) -> Optional.ofNullable(t), a -> true, a -> a);
   }
 
-  default Recipe<Optional<T>> firstMatching(Predicate<T> predicate) {
+  public Recipe<Optional<T>> firstMatching(Predicate<T> predicate) {
     return this.<Optional<T>, Optional<T>>accumulate(
         Optional::empty,
         (a, t) -> Optional.ofNullable(t).filter(predicate),
@@ -168,7 +177,8 @@ class Accumulation<T, U> {
   private final ScheduledExecutorService scheduler;
   final Consumer<Recipe<U>> parent;
   final Iterator<Recipe<T>> inputs;
-  int parallelism;
+  int remainingParallelism;
+  final ThrowingPredicate<Throwable> failureFilter;
   final ThrowingBiFunction<U, T, U> accumulator;
   final ThrowingPredicate<U> terminator;
 
@@ -182,13 +192,15 @@ class Accumulation<T, U> {
       Consumer<Recipe<U>> parent,
       Iterator<Recipe<T>> inputs,
       int parallelism,
+      ThrowingPredicate<Throwable> failureFilter,
       U zero,
       ThrowingBiFunction<U, T, U> accumulator,
       ThrowingPredicate<U> terminator) {
     this.scheduler = scheduler;
     this.parent = parent;
     this.inputs = inputs;
-    this.parallelism = parallelism;
+    this.remainingParallelism = parallelism;
+    this.failureFilter = failureFilter;
     this.accumulator = accumulator;
     this.terminator = terminator;
     this.accu = zero;
@@ -203,8 +215,8 @@ class Accumulation<T, U> {
 
   private synchronized void startOne() {
     start(inputs.next());
-    --parallelism;
-    if (parallelism > 0 && inputs.hasNext() && !terminated) {
+    --remainingParallelism;
+    if (remainingParallelism > 0 && inputs.hasNext() && !terminated) {
       startOne();
     }
   }
@@ -220,6 +232,27 @@ class Accumulation<T, U> {
     } catch (Throwable failure) {
       this.failure = failure;
     }
+    afterInput();
+  }
+
+  public synchronized void onInputFailure(
+      Context.CancellableContext child, Throwable inputFailure) {
+    running.remove(child);
+    if (terminated || this.failure != null) {
+      return;
+    }
+    try {
+      if (!failureFilter.test(inputFailure)) {
+        this.failure = inputFailure;
+      }
+    } catch (Throwable t) {
+      inputFailure.addSuppressed(t);
+      this.failure = inputFailure;
+    }
+    afterInput();
+  }
+
+  private void afterInput() {
     boolean notify = terminated || (failure != null);
     if (!notify) {
       if (inputs.hasNext()) {
@@ -229,15 +262,6 @@ class Accumulation<T, U> {
       }
     }
     if (notify) queueNotification();
-  }
-
-  public synchronized void onInputFailure(Context.CancellableContext child, Throwable failure) {
-    running.remove(child);
-    if (terminated || this.failure != null) {
-      return;
-    }
-    this.failure = failure;
-    queueNotification();
   }
 
   void queueNotification() {

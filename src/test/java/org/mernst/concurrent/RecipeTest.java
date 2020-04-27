@@ -30,9 +30,7 @@ public class RecipeTest {
   public void basic() {
     assertSame(this, eval(Recipe.to(this)));
     assertSame(this, eval(Recipe.from(() -> this)));
-    assertSame(
-        ArrayIndexOutOfBoundsException.class,
-        failureType(Recipe.failed(new ArrayIndexOutOfBoundsException())));
+    assertSame(TEST_FAILURE_CLASS, failureType(Recipe.failed(TEST_FAILURE)));
   }
 
   @Test
@@ -57,50 +55,46 @@ public class RecipeTest {
 
   @Test
   public void failures() {
+    assertSame(TEST_FAILURE_CLASS, failureType(Recipe.failed(TEST_FAILURE)));
     assertSame(
-        ArrayIndexOutOfBoundsException.class,
-        failureType(Recipe.failed(new ArrayIndexOutOfBoundsException())));
-    assertSame(
-        ArrayIndexOutOfBoundsException.class,
+        TEST_FAILURE_CLASS,
         failureType(
             Recipe.from(
                 () -> {
-                  throw new ArrayIndexOutOfBoundsException();
+                  throw TEST_FAILURE;
                 })));
     assertSame(
-        ArrayIndexOutOfBoundsException.class,
+        TEST_FAILURE_CLASS,
         failureType(
             Recipe.to(this)
                 .map(
                     ignore -> {
-                      throw new ArrayIndexOutOfBoundsException();
+                      throw TEST_FAILURE;
                     })));
     assertSame(
-        ArrayIndexOutOfBoundsException.class,
-        failureType(
-            Recipe.to(this)
-                .flatMap(ignore -> Recipe.failed(new ArrayIndexOutOfBoundsException()))));
+        TEST_FAILURE_CLASS,
+        failureType(Recipe.to(this).flatMap(ignore -> Recipe.failed(TEST_FAILURE))));
     assertSame(
-        ArrayIndexOutOfBoundsException.class,
+        TEST_FAILURE_CLASS,
         failureType(
             Recipe.to(this)
                 .flatMap(
                     ignore -> {
-                      throw new ArrayIndexOutOfBoundsException();
+                      throw TEST_FAILURE;
                     })));
   }
 
   @Test
   public void catching() {
     assertSame(
-        ArrayIndexOutOfBoundsException.class,
+        TEST_FAILURE_CLASS,
         eval(
-            Recipe.failed(new ArrayIndexOutOfBoundsException())
-                .mapFailure(IndexOutOfBoundsException.class, t -> Optional.of(t.getClass()))));
+            Recipe.failed(TEST_FAILURE)
+                .mapFailure(TEST_FAILURE_CLASS, t -> Optional.of(t.getClass()))));
     assertSame(
-        ArrayIndexOutOfBoundsException.class,
+        TEST_FAILURE_CLASS,
         failureType(
-            Recipe.failed(new ArrayIndexOutOfBoundsException())
+            Recipe.failed(TEST_FAILURE)
                 .mapFailure(AssertionError.class, t -> Optional.of(t.getClass()))));
     Throwable failure =
         failure(
@@ -117,12 +111,12 @@ public class RecipeTest {
   public void retries() {
     AtomicInteger attempts = new AtomicInteger();
     assertSame(
-        ArrayIndexOutOfBoundsException.class,
+        TEST_FAILURE_CLASS,
         failureType(
             Recipe.from(
                     () -> {
                       attempts.incrementAndGet();
-                      throw new ArrayIndexOutOfBoundsException();
+                      throw TEST_FAILURE;
                     })
                 .retrying(() -> IntStream.range(0, 10000).mapToObj(Duration::ofSeconds))));
     assertEquals(10000 + 1, attempts.get());
@@ -152,7 +146,7 @@ public class RecipeTest {
   }
 
   @Test
-  public void collect_delays() {
+  public void accumulate_delays() {
     Recipe<Duration> elapsed = Recipe.from(pool::elapsed);
     assertEquals(
         Stream.of(2, 5, 7).map(Duration::ofSeconds).collect(toImmutableList()),
@@ -166,7 +160,7 @@ public class RecipeTest {
   }
 
   @Test
-  public void collect_delays_parallelism() {
+  public void accumulate_delays_parallelism() {
     Recipe<Duration> elapsed = Recipe.from(pool::elapsed);
     assertEquals(
         Stream.of(2, 7, 7).map(Duration::ofSeconds).collect(toImmutableList()),
@@ -181,7 +175,7 @@ public class RecipeTest {
   }
 
   @Test
-  public void collect_delays_no_parallelism() {
+  public void accumulate_delays_no_parallelism() {
     Recipe<Duration> elapsed = Recipe.from(pool::elapsed);
     assertEquals(
         Stream.of(7, 9, 14).map(Duration::ofSeconds).collect(toImmutableList()),
@@ -192,13 +186,37 @@ public class RecipeTest {
   }
 
   @Test
-  public void collecting_terminate() {
+  public void accumulate_terminate() {
     Recipe<Optional<Integer>> r =
         Parallel.of(() -> IntStream.iterate(0, i -> i + 1).mapToObj(i -> Recipe.from(() -> i)))
             .parallelism(100)
             .firstMatching(i -> i == 10);
     assertEquals(10, eval(r).get().longValue());
   }
+
+  @Test
+  public void accumulate_failures() {
+    assertSame(
+        TEST_FAILURE_CLASS,
+        failureType(
+            Parallel.of(Recipe.to(1), Recipe.to(2), Recipe.failed(TEST_FAILURE))
+                .accumulate(() -> 0, Integer::sum, i -> false, i -> i)));
+    assertEquals(
+        Integer.valueOf(3),
+        eval(
+            Parallel.of(Recipe.to(1), Recipe.to(2), Recipe.failed(TEST_FAILURE))
+                .ignoring(TEST_FAILURE_CLASS)
+                .accumulate(() -> 0, Integer::sum, i -> false, i -> i)));
+    assertSame(
+        TEST_FAILURE_CLASS,
+        failureType(
+            Parallel.of(Recipe.to(1), Recipe.to(2), Recipe.failed(TEST_FAILURE))
+                .ignoring(TEST_FAILURE_CLASS, f -> f != TEST_FAILURE)
+                .accumulate(() -> 0, Integer::sum, i -> false, i -> i)));
+  }
+
+  @Test
+  public void accumulate_ignoreFailures() {}
 
   @Test
   public void flatten() {
@@ -305,4 +323,7 @@ public class RecipeTest {
   private Class<? extends Throwable> failureType(Recipe<?> recipe) {
     return failure(recipe).getClass();
   }
+
+  private static RuntimeException TEST_FAILURE = new RuntimeException() {};
+  private static Class<? extends Throwable> TEST_FAILURE_CLASS = TEST_FAILURE.getClass();
 }

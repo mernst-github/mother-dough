@@ -11,7 +11,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.URL;
 
-public abstract class ResourceModule extends ActionsModule {
+public abstract class ResourceModule extends ActionModule {
   private final Class<?> baseClass;
   private final String resourceDirectory;
 
