@@ -1,0 +1,18 @@
+load("@npm_bazel_typescript//:index.bzl", "ts_library")
+load("@npm_bazel_rollup//:index.bzl", "rollup_bundle")
+
+ts_library(
+    name = "async",
+    srcs = ["async.ts"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@npm//@types/node",
+    ],
+)
+
+rollup_bundle(
+    name = "bundle",
+    entry_points = {"async.ts": "asynclib"},
+    visibility = ["//visibility:public"],
+    deps = [":async"],
+)

@@ -1,0 +1,18 @@
+load("@npm_bazel_typescript//:index.bzl", "ts_library")
+load("@npm_bazel_karma//:index.bzl", "karma_web_test")
+
+ts_library(
+    name = "async_test_lib",
+    srcs = ["async_test.ts"],
+    deps = [
+        "//src/main/ts/org/mernst/async",
+        "@npm//@types/jasmine",
+    ],
+)
+
+karma_web_test(
+    name = "async_test",
+    deps = [
+        ":async_test_lib",
+    ],
+)

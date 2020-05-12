@@ -1,5 +1,6 @@
 RESULT = [
     "HttpResult.java",
+    "Codes.java",
 ]
 
 ACTION = [

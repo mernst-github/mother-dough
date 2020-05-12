@@ -2,7 +2,6 @@ package org.mernst.http.server;
 
 import com.google.api.client.http.HttpResponseException;
 import com.google.auto.value.AutoValue;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import io.grpc.Status;
 import org.mernst.collect.Streamable;
@@ -20,10 +19,6 @@ import java.util.Optional;
 
 @AutoValue
 public abstract class HttpResult {
-
-  public static final String TEXT_UTF8 = "text/plain;charset=utf-8";
-  public static final String HTML_UTF8 = "text/html;charset=utf-8";
-  public static final String JSON = "application/json";
 
   public abstract int status();
 
@@ -74,7 +69,7 @@ public abstract class HttpResult {
 
   public static HttpResult of(Status rpcStatus) {
     return create(
-        toHttpStatus(rpcStatus),
+        Codes.toHttpStatus(rpcStatus),
         Streamable.of(),
         Body.plainUtf8(w -> Plan.of(() -> w.write(rpcStatus.toString()))));
   }
@@ -83,13 +78,9 @@ public abstract class HttpResult {
     return create(
         t instanceof HttpResponseException
             ? ((HttpResponseException) t).getStatusCode()
-            : toHttpStatus(Status.fromThrowable(t)),
+            : Codes.toHttpStatus(Status.fromThrowable(t)),
         Streamable.of(),
         Body.plainUtf8(w -> Plan.of(() -> t.printStackTrace(new PrintWriter(w)))));
-  }
-
-  private static Integer toHttpStatus(Status rpcStatus) {
-    return HTTP_CODES.getOrDefault(rpcStatus.getCode(), 500);
   }
 
   public interface Binary {
@@ -131,30 +122,15 @@ public abstract class HttpResult {
     }
 
     public static Body plainUtf8(Text text) {
-      return of(TEXT_UTF8, StandardCharsets.UTF_8, text);
+      return of(Codes.TEXT_UTF8, StandardCharsets.UTF_8, text);
     }
 
     public static Body htmlUtf8(Text text) {
-      return of(HTML_UTF8, StandardCharsets.UTF_8, text);
+      return of(Codes.HTML_UTF8, StandardCharsets.UTF_8, text);
     }
 
     public static Body json(Text json) {
-      return of(JSON, StandardCharsets.UTF_8, json);
+      return of(Codes.JSON, StandardCharsets.UTF_8, json);
     }
   }
-
-  private static final ImmutableMap<Status.Code, Integer> HTTP_CODES =
-      ImmutableMap.<Status.Code, Integer>builder()
-          .put(Status.Code.OK, 200)
-          .put(Status.Code.ALREADY_EXISTS, 412)
-          .put(Status.Code.FAILED_PRECONDITION, 412)
-          .put(Status.Code.ABORTED, 412)
-          .put(Status.Code.NOT_FOUND, 404)
-          .put(Status.Code.PERMISSION_DENIED, 403)
-          .put(Status.Code.UNAUTHENTICATED, 401)
-          .put(Status.Code.UNAVAILABLE, 503)
-          .put(Status.Code.DEADLINE_EXCEEDED, 504)
-          .put(Status.Code.INVALID_ARGUMENT, 400)
-          .put(Status.Code.OUT_OF_RANGE, 400)
-          .build();
 }
