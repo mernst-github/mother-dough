@@ -58,13 +58,6 @@ export async function hedge<T>(starter: (AbortSignal?) => Promise<T>, delay: num
     throw lastError;
 }
 
-async function download(f) {
-}
-
-async function downloadAsync(files) {
-    for (const f of files) await download(f);
-}
-
 export async function* parallel<T>(
     starter: (signal: AbortSignal) => Iterator<Promise<T>>,
     parallelism: number,
