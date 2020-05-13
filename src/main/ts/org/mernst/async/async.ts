@@ -1,4 +1,5 @@
-export function sleep(delay: number, signal?) {
+export function sleep(delay: number, signal?: AbortSignal) {
+    checkAbort(signal);
     return new Promise((resolve, reject) => {
         let timer;
         const listener = () => {
@@ -14,12 +15,17 @@ export function sleep(delay: number, signal?) {
     });
 }
 
-export async function after<T>(delay: number, starter: (AbortSignal?) => Promise<T>, signal?) {
+export async function after<T>(
+    delay: number,
+    starter: (AbortSignal?) => Promise<T>,
+    signal?) {
     await sleep(delay, signal);
-    return await starter(signal);
+    return starter(signal);
 }
 
-export async function retry<T>(starter: (AbortSignal) => Promise<T>, delays: Iterable<number>, signal?): Promise<T> {
+export async function retry<T>(starter: (AbortSignal) => Promise<T>,
+                               delays: Iterable<number>,
+                               signal?: AbortSignal): Promise<T> {
     let lastError;
     try {
         return await starter(signal);
@@ -27,7 +33,6 @@ export async function retry<T>(starter: (AbortSignal) => Promise<T>, delays: Ite
         lastError = e;
     }
     for (const delay of delays) {
-        checkAbort(signal);
         await sleep(delay, signal);
         try {
             return await starter(signal);
@@ -39,12 +44,11 @@ export async function retry<T>(starter: (AbortSignal) => Promise<T>, delays: Ite
 }
 
 export async function hedge<T>(starter: (AbortSignal?) => Promise<T>, delay: number, signal?) {
-    const hedged = function* (signal) {
+    let lastError;
+    for await (const [p] of parallel(function* (signal) {
         yield starter(signal);
         yield after(delay, starter, signal);
-    };
-    let lastError;
-    for await (const [p] of parallel(hedged, 2, signal)) {
+    }, 2, signal)) {
         try {
             return await p;
         } catch (e) {
@@ -54,18 +58,25 @@ export async function hedge<T>(starter: (AbortSignal?) => Promise<T>, delay: num
     throw lastError;
 }
 
+async function download(f) {
+}
+
+async function downloadAsync(files) {
+    for (const f of files) await download(f);
+}
+
 export async function* parallel<T>(
     starter: (signal: AbortSignal) => Iterator<Promise<T>>,
     parallelism: number,
     signal?: AbortSignal) {
-    const abortController = new AbortController();
-    const listener = () => abortController.abort();
+    const childController = new AbortController();
+    const childListener = () => childController.abort();
     if (signal) {
-        signal.addEventListener('abort', listener);
+        signal.addEventListener('abort', childListener);
     }
     try {
         const remaining: Promise<T>[] = [];
-        const it = starter(abortController.signal);
+        const it = starter(childController.signal);
         while (true) {
             while (remaining.length < parallelism) {
                 const next = it.next();
@@ -80,9 +91,9 @@ export async function* parallel<T>(
         }
     } finally {
         if (signal) {
-            signal.removeEventListener('abort', listener);
+            signal.removeEventListener('abort', childListener);
         }
-        abortController.abort();
+        childController.abort();
     }
 }
 

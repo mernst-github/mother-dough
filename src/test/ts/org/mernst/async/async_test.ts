@@ -119,7 +119,7 @@ describe("hedging", () => {
     });
 });
 describe("parallel", () => {
-    const makeGenerator = (started?, finished?) => parallel(function* (signal) {
+    const parallelize = (started?, finished?) => parallel(function* (signal) {
         for (const i of [1, 2, 3, 4, 5]) {
             if (started) started.push(i);
             yield (async () => {
@@ -132,14 +132,14 @@ describe("parallel", () => {
 
     it("parallelizes", async () => {
         let started = [];
-        const gen = makeGenerator(started);
-        await gen.next();
+        const sut = parallelize(started);
+        await sut.next();
         expect(started).toEqual([1, 2, 3]);
     });
     it("returns finished promises", async () => {
         let finished = [];
-        const gen = makeGenerator(null, finished);
-        const result = await gen.next();
+        const sut = parallelize(null, finished);
+        const result = await sut.next();
         expect(finished.length).toBeGreaterThan(0);
         expect(result.done).toBeFalsy();
         // @ts-ignore
@@ -148,9 +148,9 @@ describe("parallel", () => {
     });
     it("keeps parallelism up", async () => {
         let started = [];
-        const gen = makeGenerator(started);
-        await gen.next();
-        await gen.next();
+        const sut = parallelize(started);
+        await sut.next();
+        await sut.next();
         await sleep(200);
         expect(started).toEqual([1, 2, 3, 4]);
     });
@@ -167,9 +167,9 @@ describe("parallel", () => {
     it("aborts pre-started work", async () => {
         let started = [];
         let finished = [];
-        const gen = makeGenerator(started, finished);
-        await gen.next();
-        await gen.return();
+        const sut = parallelize(started, finished);
+        await sut.next();
+        await sut.return();
         await sleep(500);
         expect(started).toEqual([1, 2, 3]);
         expect(finished).toEqual([1]);
